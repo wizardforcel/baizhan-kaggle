@@ -113,3 +113,6 @@ Thumbs.db
 # word
 ~$*.docx
 ~$*.doc
+
+# 中间产物（EPUB 抽取文本，6GB+）
+work/
