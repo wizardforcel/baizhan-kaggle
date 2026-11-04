@@ -28,7 +28,7 @@ CubeLift 系列和 3×3 的源头比赛关系很深。在 3×3×3（Face-and-Mid
 
 ### 2.1 数据探索（EDA）
 
-我们首先把数据读进来。5×5 直接提供一个 `metric.py`，所以这次我们不再自己解析 JSON：
+我们首先把数据读进来。5×5 主数据直接提供一个 `metric.py`，所以动作表、目标状态和评分函数都从官方模块里拿，不再自己解析 JSON（只有后面核对 3×3 源数据时才需要直接读它的 JSON）：
 
 ```python
 from pathlib import Path
