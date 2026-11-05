@@ -157,6 +157,22 @@ dev_dataloader = DataLoader(DatasetLoader(dev_sentences_processed, dev_labels), 
 
 训练 batch 用 128，验证 batch 用 256，因为验证不需要反向传播，可以开大一点加快速度。
 
+材料里还定义了一个生成 mask 的函数，用来标记哪些位置是真实字符、哪些是补齐的 PAD：
+
+```python
+def make_mask(sentences, sentence_length):
+    masks = []
+    for sentence in sentences:
+        words_count = len(sentence[:sentence_length])
+        # 真实字符位置为 1，PAD 位置为 0
+        sentence_mask = np.concatenate([np.ones(words_count - 1), np.ones(1),
+                                        np.zeros(sentence_length - words_count)])
+        masks.append(sentence_mask)
+    return np.array(masks)
+```
+
+mask 的作用是告诉模型「哪些位置是凑数的」。不过在这个 CharCNN 基线里，卷积和池化会自己学到 PAD 区域的特征不重要，所以 mask 虽然被构造出来，实际前向计算并没有用到它。如果换成靠注意力机制工作的模型，mask 就必不可少了，否则模型会把注意力浪费在补齐的零上。
+
 ### 2.3 模型训练与超参数调优
 
 CharCNN 的结构是：先查字符嵌入，再用 3、4、5 三种大小的卷积核在字符序列上滑动，抓取「2 到 4 个字符组成的局部片段」，然后做最大池化，把不同长度的特征压成固定长度，拼起来送进全连接层。
@@ -241,11 +257,35 @@ for epoch in range(6):
 
 **关于调参。** 材料里的基线是「够用就好」的配置：6 轮、Adam 默认学习率、不做学习率衰减。我们主要关注三个超参数的影响：序列长度 150（由数据最长值决定）、嵌入维度 300（字符级任务常用值）、dropout 0.5（二分类小数据集容易过拟合，需要较强正则）。如果要继续提升，可以试更小的卷积核数量、加早停、或者改用预训练韩语模型，但材料里的基线没有做这些。
 
+**对比方案：双向 LSTM。** 同一个数据集上，材料还提供了一个用双向 LSTM 做序列建模的变体。和 CharCNN「只盯局部窗口」不同，LSTM 会从左到右、从右到左地读完整条评论，因此能捕捉更长的上下文——偏见往往跨越好几个词组才显山露水。
+
+```python
+class BiLSTMClassifier(nn.Module):
+    def __init__(self, vocab_size, input_size, hidden_dim,
+                 num_layers, bidirectional, num_classes, dropout=0.5):
+        super().__init__()
+        self.embedding = nn.Embedding(vocab_size, embedding_dim, padding_idx=0)
+        self.lstm = nn.LSTM(input_size, hidden_dim, num_layers,
+                            batch_first=True, bidirectional=bidirectional)
+        self.dropout = nn.Dropout(dropout)
+        # 双向输出维度翻倍：正向和反向隐藏状态拼接
+        self.fc = nn.Linear(hidden_dim * (2 if bidirectional else 1), num_classes)
+
+    def forward(self, x):
+        emb = self.embedding(x)                     # (batch, len, embed)
+        _, (h_n, _) = self.lstm(emb)                # 只取最后的隐藏状态
+        if self.lstm.bidirectional:
+            h = torch.cat([h_n[-2], h_n[-1]], dim=1)   # 正向 + 反向
+        else:
+            h = h_n[-1, :, :]
+        return self.fc(self.dropout(h))
+```
+
+这里 `hidden_dim=128`、单层、双向、dropout 0.5。训练配置和 CharCNN 相同：同样用类别权重的交叉熵、Adam、5 轮。对比下来，双向 LSTM 的优点是能看全局上下文，缺点是参数更多、训练更慢，而且对短评论来说，长上下文优势发挥不出来。哪个更好要看具体的验证集分数，但至少给了我们一个可以对照的基线。
+
 ### 2.4 模型测试与指标报告
 
-训练时每个 batch 都打印训练损失、验证损失、训练准确率、验证准确率。我们重点看验证准确率是否随轮数稳定上升；如果训练准确率一直涨、验证准确率不涨甚至下降，就说明过拟合了。
-
-训练时每个 batch 都打印训练损失、验证损失、训练准确率、验证准确率。我们重点看验证准确率是否随轮数稳定上升；如果训练准确率一直涨、验证准确率不涨甚至下降，就说明过拟合了。为了让模型训练更透明，我们还可以把每个 epoch 的平均损失和准确率画成折线图，这样能一眼看到收敛情况。
+训练时每个 batch 都打印训练损失、验证损失、训练准确率、验证准确率。我们重点看验证准确率是否随轮数稳定上升；如果训练准确率一直涨、验证准确率不涨甚至下降，就说明过拟合了。为了让训练过程更透明，我们还可以把每个 epoch 的平均损失和准确率画成折线图，这样能一眼看到收敛情况。
 
 训练完成后，切到评估模式，对测试集逐条预测：
 
@@ -292,4 +332,4 @@ test_df.to_csv('/kaggle/working/prediction.csv', index=None, header=True)
 
 特别值得一提的是时间成本。字符级模型的词表通常只有几百到一千个，嵌入矩阵非常小，训练 6 个 epoch 在单卡 GPU 上只需几分钟。这种快速迭代的特点非常适合初学者不断尝试不同的超参数、不同长度、不同的卷积核组合。等我们对数据有了更深的理解，再投入算力做预训练模型微调，效率会更高。
 
-总的来说，字符级 CNN 是一个非常适合入门的基线，它让初学者在不了解韩语分词细节的情况下也能上手文本分类。等基线跑通后，再把预训练模型引入进来，就会体会到「上下文理解」和「局部模式匹配」之间的巨大差距。
+总的来说，字符级 CNN 是一个非常适合入门的基线，它让初学者在不了解韩语分词细节的情况下也能上手文本分类。等基线跑通后，再把预训练模型引入进来，就会体会到「上下文理解」和「局部模式匹配」之间的巨大差距。这一从简单到复杂的路径，正是 Kaggle 新手成长的必经之路。

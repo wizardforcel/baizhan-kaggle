@@ -152,6 +152,8 @@ for images, targets, image_ids in tqdm(train_dataloader):
 
 batch 取 8，学习率 0.005，每轮乘 0.2。材料里为了节省时间只训练了 1 个 epoch、800 次迭代就中断，并明确说明“这是演示，结果不会好”。
 
+两条路线在工程上的差别也值得记录。YOLOv4 的数据管线需要自己维护数据集类，解析标注、缓存图片缓存文件、可选 mosaic 增强，配置项多但可控；Faster R-CNN 则直接复用 torchvision 的检测框架，数据类只需要返回 `images` 列表与 `targets` 字典列表，代码更短，但训练速度和对显存的要求更高。如果比赛更看重部署速度，YOLO 更合适；如果更看重小目标和高精度，两阶段模型通常更强。
+
 ### 2.4 模型测试与指标报告
 
 评估时用 YOLO 仓库自带的 `ap_per_class`，它对每类计算 P、R、AP：

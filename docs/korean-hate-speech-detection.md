@@ -210,6 +210,51 @@ for epoch in range(num_epochs):
 
 **对比方案：KoELECTRA 微调。** TextCNN 从零训练，词表是空格切出来的，对韩语变形不友好。材料里另一个方案直接微调 `monologg/koelectra-base-v3-discriminator`：用预训练分词器把评论切成子词，最大长度设为 64，加载 `ElectraForSequenceClassification`，训练 5 轮、batch size 64、开启 fp16，并用宏平均 F1 挑选最佳轮次。这个方案站在预训练模型已经学过的韩语知识上，通常比从零训练的小网络更稳。
 
+关键的训练配置用 `TrainingArguments` 一次说明：
+
+```python
+from transformers import ElectraForSequenceClassification, Trainer, TrainingArguments
+
+# 加载多标签的分类头（本案例里做了二值化：hate/offensive -> 1，none -> 0）
+model = ElectraForSequenceClassification.from_pretrained(MODEL_NAME, num_labels=2)
+
+training_args = TrainingArguments(
+    output_dir='./results',
+    num_train_epochs=5,               # 训练 5 轮
+    per_device_train_batch_size=64,   # T4 显卡能容纳的批量大小
+    fp16=True,                        # 半精度训练，速度约提升一倍
+    eval_strategy="epoch",            # 每个 epoch 结束后在验证集上评估
+    load_best_model_at_end=True,      # 训练结束自动恢复效果最好的那个
+    metric_for_best_model="f1",       # 用 F1 而非 loss 挑模型
+)
+
+trainer = Trainer(
+    model=model,
+    args=training_args,
+    train_dataset=tokenized_train,
+    eval_dataset=tokenized_val,
+    compute_metrics=compute_metrics,
+)
+trainer.train()
+```
+
+这里两个设置值得注意。一是开启 `fp16` 半精度训练：T4 这类推理显卡的加速靠的是张量核心，半精度能明显缩短训练时间；二是 `load_best_model_at_end` 配合 `metric_for_best_model="f1"`，保证我们拿到的是整个训练过程中 F1 最高的状态，而不是最后一个 epoch 的状态——后者往往已经开始过拟合。
+
+`compute_metrics` 里同时算准确率和宏平均 F1：
+
+```python
+from sklearn.metrics import accuracy_score, f1_score
+
+def compute_metrics(pred):
+    labels = pred.label_ids
+    preds = pred.predictions.argmax(-1)
+    acc = accuracy_score(labels, preds)
+    f1 = f1_score(labels, preds, average='macro')   # 不均衡场景看宏平均 F1
+    return {'accuracy': acc, 'f1': f1}
+```
+
+把宏平均 F1 写进 `compute_metrics` 而不是只看准确率，是因为类别不均衡时准确率会骗人：即使少数类全猜错，只要 `none` 类猜对得多，准确率还是很高。
+
 **快速基线：直接调用现成模型。** 材料里还有一个更省事的做法：用 `transformers` 的 `pipeline` 加载 `beomi/beep-KcELECTRA-base-hate`，对测试集逐条推理，再把字符串标签映射成数字提交。它不需要训练，适合先拿到一个能提交的结果，再慢慢优化。
 
 ### 2.4 模型测试与指标报告
@@ -257,4 +302,4 @@ df.to_csv('./submission.csv', index=None)
 
 本文中我们完成了韩语仇恨言论检测的完整流程。我们首先通过 EDA 确认三类标签不均衡、评论普遍较短，并用分层抽样切分训练验证集。其次做了最基础的清洗，只用训练集构建词表，把评论转成固定长度序列。接着用 TextCNN 建立从零训练的基线，通过三路卷积抓取局部辱骂模式，并用类别加权交叉熵缓解不均衡。然后对比了 KoELECTRA 微调方案和现成模型直接推理方案，前者用子词分词和预训练知识，通常效果更好。最后用宏平均 F1 选模型，并用分类报告和混淆矩阵逐类分析。
 
-这个比赛给我们的最大启发是：**类别不均衡时，看总数会骗人**。准确率很高不代表模型好，必须拆到每一类去看 F1。另外，韩语这类形态丰富的语言，子词分词比空格分词更合适，这也是预训练模型普遍强于从零训练小网络的原因。
+这个比赛给我们的最大启发是：**类别不均衡时，看总数会骗人**。准确率很高不代表模型好，必须拆到每一类去看 F1。另外，韩语这类形态丰富的语言，子词分词比空格分词更合适，这也是预训练模型普遍强于从零训练小网络的原因。把这两点结合起来，就是文本分类比赛里最实用的方法论：选对分词与预训练模型，再认真看每一类的指标。
