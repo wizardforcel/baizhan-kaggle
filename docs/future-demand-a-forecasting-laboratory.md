@@ -76,6 +76,20 @@ assert (observed.num_sold>0).all()
 
 销售值全部为正，说明 0 不是真实的「没卖掉」，而是缺失。了解这一点很重要：如果把缺失填成 0，模型会学到错误的停滞模式。
 
+缺失目标出现的频率值得单独统计：某系列缺失越多，我们对它的结论越不可靠。我们把每个系列缺失的行数导出成审计表：
+
+```python
+missing = (train
+           .assign(missing=train.num_sold.isna())
+           .groupby(['country','store','product'], observed=True)
+           .agg(rows=('id','size'), missing=('missing','sum'))
+           .reset_index())
+missing.to_csv('missing_target_audit.csv', index=False)
+print(missing.missing.value_counts())
+```
+
+这张表留给后续的分析用：如果一个系列一半以上的日期都是缺失的，那它并没有告诉我们「这个产品没人买」，而只是「还没观察到」，做预测时需要更谨慎。
+
 ### 2.2 数据清洗与特征
 
 这份合成数据本身干净，除了一点：**缺失目标值**要单独处理。做法不是插值，而是直接排除——模型不学习它们的标签，预测时也不计算误差。
