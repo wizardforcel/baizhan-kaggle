@@ -113,7 +113,17 @@ full["Deck"] = cabin[0].fillna("U").replace("", "U")
 full["CabinNum"] = pd.to_numeric(cabin[1], errors="coerce")
 full["Side"] = cabin[2].fillna("U").replace("", "U")
 ```
-舱号再分箱成 `CabinRegion`，让模型更容易学习位置规律。
+舱号再分箱成 `CabinRegion`，让模型更容易学习位置规律。材料里把舱号按 300 左右一段切成 6 个区域，并额外保留一个 `Unknown` 区域给缺失值。这样做的原因是舱号是连续的，直接当数值喂给树模型也可以，但分箱后含义更明确，模型在样本少的时候更不容易被个别极端舱号带偏。
+```python
+import numpy as np
+full["CabinRegion"] = pd.cut(
+    full["CabinNum"],
+    bins=[-np.inf, 299, 599, 899, 1199, 1499, np.inf],
+    labels=["Region1","Region2","Region3","Region4","Region5","Region6"]
+)
+full["CabinRegion"] = full["CabinRegion"].astype("object").fillna("Unknown")
+```
+
 
 消费类特征先把缺失填 0，再做汇总。
 ```python
@@ -125,7 +135,18 @@ full["AmenitiesUsed"] = (spending > 0).sum(axis=1)
 full["LuxurySpend"] = spending["RoomService"] + spending["Spa"] + spending["VRDeck"]
 full["FoodShoppingSpend"] = spending["FoodCourt"] + spending["ShoppingMall"]
 ```
-对消费做 log1p 变换，减少极端值影响。
+对消费做 log1p 变换，减少极端值影响。消费金额的分布通常很偏，少数人花很多钱，大多数人花很少或不花。log 变换能把长尾拉回来，让模型更关注相对差异而不是绝对数值。
+
+```python
+# 原始消费列加上我们刚汇总出来的三列，一起做对数变换
+log_columns = spend_columns + ["TotalSpend", "LuxurySpend", "FoodShoppingSpend"]
+
+for col in log_columns:
+    # clip(lower=0) 防止出现负数金额；log1p 等价于 log(1+x)，x=0 时结果仍是 0
+    full["Log_" + col] = np.log1p(full[col].fillna(0).clip(lower=0))
+```
+
+这里我们保留原始金额列，同时新增对数列，而不是直接用对数列替换原列。原因是树模型对单调变换不敏感，保留原列不会伤害模型；但如果后面要试线性模型或做特征重要性解释，对数列会更稳。两种版本都留着，等于把选择权交给验证集。
 
 年龄也做了分箱。
 ```python
@@ -134,7 +155,13 @@ full["IsYoung"] = (full["Age"] < 25).astype(int)
 full["AgeBand"] = pd.cut(full["Age"], bins=[-np.inf,12,18,25,35,50,65,np.inf],
                          labels=["Child","Teen","Young","YoungAdult","Adult","MiddleAge","Senior"])
 ```
-最后对所有数值列用中位数填补，类别列用 `Unknown` 填补，再做 `pd.get_dummies` 一键独热编码。这样训练集和测试集的列对齐。
+最后对所有数值列用中位数填补，类别列用 `Unknown` 填补，再做 `pd.get_dummies` 一键独热编码。这样训练集和测试集的列对齐。我们采用中位数而不是均值，是因为年龄和消费这类字段有明显偏态，均值会被少数高消费乘客拉高，中位数更稳健。独热编码之前先合并训练集和测试集，也是为了保证类别集合完整，不会出现训练时有 3 个星球、测试时忽然多出一个新星球的情况。
+
+此外，材料还构造了一个交互特征，表示“既在冷冻睡眠又没有任何消费”，这两件事在业务上高度相关，单独放一个显式特征能让模型更快学到这个组合。
+```python
+full["CryoAndNoSpend"] = ((full["CryoSleep"] == "True") & (full["NoSpend"] == 1)).astype(int)
+```
+
 
 ### 2.3 模型训练与超参数调优
 清洗完特征后，我们用分层 5 折交叉验证避免数据泄露，并对每折模型求概率平均。
@@ -170,7 +197,7 @@ def train_cv_model(model, model_name):
     print(f"{model_name} 平均折准确率 {np.mean(fold_scores):.5f}, 最佳阈值 {best_thr:.3f}")
     return oof_probability, test_probability, best_thr
 ```
-这段代码保证我们选阈值时不会泄漏。
+这段代码保证我们选阈值时不会泄漏。阈值搜索只在训练集内部的 OOF 概率上做，测试集始终没有参与选阈值，所以验证结果更可信。材料里搜索的范围是 0.40 到 0.60，步长 0.005，原因在于这个比赛的类别大致均衡，最优阈值通常不会偏离 0.5 太远；如果搜索范围太大，反而容易在训练集上过拟合。
 
 材料里尝试了多个树模型，首选是 `HistGradientBoostingClassifier`。
 ```python
@@ -186,7 +213,7 @@ model_1 = HistGradientBoostingClassifier(
 )
 oof_1, test_prob_1, thr_1 = train_cv_model(model_1, "HistGradientBoosting")
 ```
-参数选择强调正则化和小叶子样本，避免过拟合。
+参数选择强调正则化和小叶子样本，避免过拟合。学习率 0.05 配合 400 次迭代，能让模型慢慢收敛；`max_leaf_nodes=31` 控制树的大小，防止在这么多手工特征上记训练集的噪声。`min_samples_leaf=20` 也起到同样的作用。`l2_regularization=1.0` 让模型对稀疏的独热特征更稳定。
 
 随后也尝试了 `RandomForest`、`ExtraTrees`、`GradientBoosting`，并用类似流程训练。
 ```python
@@ -202,7 +229,9 @@ model_2 = RandomForestClassifier(
     n_jobs=-1
 )
 ```
-超参数调优主要靠经验和交叉验证的平均准确率，没有做耗时的网格搜索。
+超参数调优主要靠经验和交叉验证的平均准确率，没有做耗时的网格搜索。原因很实际：这份数据每跑一次 5 折都要训练好几个模型，而手工特征已经很多，真正影响分数的往往是特征质量而不是把 `max_depth` 从 13 调到 14。材料里的做法是先用一组合理的默认值跑通流程，再观察每折准确率是否稳定；如果某折明显掉队，就回去检查那一折的样本分布，而不是盲目扩大搜索空间。这样的调参更省时间，也更适合入门者复现。
+
+材料还使用了 `ExtraTreesClassifier`，它和随机森林很像，但在切分节点时更随机，训练更快，对方差也更友好。`GradientBoostingClassifier` 则是一个更传统的提升模型，学习率设得比较小，配合子采样来防止过拟合。三个模型分别训练后，我们既能比较它们的 OOF 准确率，也能把概率平均或投票，得到更稳的结果。
 
 在另一个简易方案里，材料也展示了用 `TotalSpend` 做特征工程后，用 XGBoost 做快速验证。
 ```python
@@ -217,7 +246,7 @@ for df in [train, test]:
 model_xgb = XGBClassifier(n_estimators=150, learning_rate=0.05, random_state=42, eval_metric="logloss")
 model_xgb.fit(X, y)
 ```
-这说明即使是简单的消费汇总特征也能带来提升。
+这说明即使是简单的消费汇总特征也能带来提升。这个简易方案的价值在于快速拿到一个能提交的基线，让我们先确认数据读取和提交流程没有问题，再投入时间做复杂特征。很多时候，一个能跑的简单模型比一个还没跑通的复杂模型更有用。
 
 ### 2.4 模型测试与指标报告
 训练完成后，我们用全量训练数据重新拟合，并在测试集上生成概率，通过最优阈值转为布尔预测。
@@ -235,14 +264,16 @@ def create_submission(test_probability, threshold, filename):
     print("✅ Submission created:", filename)
     return submission
 ```
-生成文件后会打印预测分布，确认没有全是同一类的错误。
+生成文件后会打印预测分布，确认没有全是同一类的错误。这一步看起来很琐碎，但比赛里提交格式错、行数不对、列名不对都会直接判失败，所以我们在函数里加了三个断言：行数必须和样例一致、列名顺序必须一致、乘客编号不能重复。只要有一项不满足，程序会立刻报错，而不是悄悄生成一个坏文件。
 
 我们还做了简单集成验证：用逻辑回归、随机森林、带特征工程的随机森林、XGBoost 四个模型投票。
 ```python
 votes = pd.DataFrame({"p1": pred1, "p2": pred2, "p3": pred3, "p4": pred4})
 final_prediction = votes.sum(axis=1) >= 2
 ```
-投票策略在材料里作为第二种提交方案出现，说明作者在追求稳定性的同时也尝试了集成。
+投票策略在材料里作为第二种提交方案出现，说明作者在追求稳定性的同时也尝试了集成。四个模型里既有线性模型也有树模型，犯错的样本不完全重叠，投票可以在一定程度上互相纠错。当然，投票不是万能的，如果四个模型都很弱，投票也只能得到一个弱的共识，所以主力仍然是前面调好的梯度提升模型。
+
+最后，我们会把不同模型的 OOF 准确率放在一起比较，挑验证分数最高、且各折波动最小的那个生成最终提交。只看单折分数容易被随机性骗到，看 5 折的平均值和波动范围更可靠。材料里的代码正是这样做的：`train_cv_model` 返回 OOF 概率和测试概率，我们再统一用同一个阈值策略生成提交。
 
 ## 三、总结
 本文中我们完成了 ULIMA Spaceship Titanic 比赛的完整流程。我们首先用 EDA 摸清了数据的缺失情况和目标分布，其次在数据清洗阶段做了乘客组解析、舱位拆分、消费汇总和年龄分箱等特征工程。然后我们用分层 5 折交叉验证训练了 HistGradientBoosting、RandomForest、ExtraTrees 等树模型，并通过 OOF 概率搜索最优阈值。最后我们生成了符合格式的提交文件，并在验证集上报告了准确率。

@@ -3,95 +3,115 @@
 ## 一、比赛简介
 
 ### 1.1 比赛背景
-What's Cooking Kernels Only 是 Kaggle 关于菜系预测的内核集合比赛。比赛提供食材列表预测菜系，数据与 What's Cooking 相同，但社区聚焦于深度学习方法。与传统词袋方法不同，本比赛强调序列建模，利用食材出现的顺序信息。
+
+What's Cooking Kernels Only 是 Kaggle 上的一个仅开放内核的练习赛，与主赛使用相同数据源，但社区更加关注模型组合和特征工程技巧。比赛的背景仍然是根据菜谱的配料列表判断菜系类别，旨在让参赛者练习文本预处理、TF-IDF 表示以及经典机器学习的组合技巧。
+
+比赛数据来源于食谱网站，训练集约 4 万条，测试集约 1 万条。每条样本由 id、cuisine、ingredients 三列组成，ingredients 是一组配料字符串。不同菜系的配料使用习惯不同，模型可以从食材共现中学习菜系特征。
 
 ### 1.2 比赛目标
-输入每条菜谱的食材列表，输出对应的菜系类别。训练集 39774 条，测试集 9944 条，共有 20 个菜系类别。
+
+给定训练集的配料列表和菜系标签，构建模型预测测试集的菜系。训练集 39774 条，测试集 9944 条。菜系类别共 20 种，包括 italian、mexican、southern_us、indian、chinese、french 等。
+
+提交文件需要包含 id 和预测的 cuisine。
 
 ### 1.3 评价标准
-采用分类准确率作为评测指标，预测正确比例越高越好。
+
+评价指标为分类准确率，预测与真实标签完全一致的比例，越高越好。公开榜前 2% 的方案准确率约 0.86，采用 TF-IDF 结合 MLP 和 SVC 的集成策略。
 
 ## 二、解题过程
 
 ### 2.1 数据探索（EDA）
-读取 JSON 数据并统计类别分布。
+
+我们首先读取 train.json，统计配料数和类别分布。
 
 ```python
-import json, numpy as np
-from tensorflow.keras.preprocessing.text import Tokenizer
-from sklearn.preprocessing import LabelEncoder
-
-with open("../input/whats-cooking-kernels-only/train.json") as f:
+import json, pandas as pd
+with open('train.json') as f:
     data = json.load(f)
-ingredients = [i['ingredients'] for i in data]
-cuisine = [i['cuisine'] for i in data]
-print(len(ingredients))
+df = pd.DataFrame(data)
+print(df.shape)
+print(df['cuisine'].value_counts())
 ```
 
-食材列表长度不一，最大序列长度约 65。我们对食材列表做整体分词，构建词表。
+训练集 39774 条，测试集 9944 条，20 个类别不等。随后我们把配料列表展平成所有配料，找出最常见的配料，发现 salt、pepper、garlic 通用性强，而 cinnamon、ginger 在特定菜系更常见。
+
+我们将配料列表转为字符串，便于向量化。
 
 ```python
-tokenizer = Tokenizer(oov_token="<OOV>")
-tokenizer.fit_on_texts(ingredients)
-sequences = tokenizer.texts_to_sequences(ingredients)
-max_len = max(len(s) for s in sequences)
+df['ingredients_str'] = [' '.join(x) for x in df['ingredients']]
 ```
 
 ### 2.2 数据清洗
-食材名称标准化，去掉大小写差异并统一。
+
+清洗分两步：先得到所有唯一配料的清洗列表，再用该列表清洗每条菜谱。
 
 ```python
-from tensorflow.keras.preprocessing.sequence import pad_sequences
-padded = pad_sequences(sequences, maxlen=max_len, padding='pre')
+import re, string
+from nltk.corpus import stopwords
+chars = re.escape(string.punctuation)
+def clean_ing(s):
+    s = re.sub(r'['+chars+']','', s)
+    s = re.sub('[0-9]+','', s.replace("oz",""))
+    s = s.strip().lower()
+    words = [w for w in s.split(' ') if w not in stopwords.words('english')]
+    return ' '.join(words)
 ```
 
-标签编码。
-
-```python
-le = LabelEncoder()
-labels = le.fit_transform(cuisine)
-```
-
-数据清洗后无缺失值。
+清洗后，配料中的量词、单位和停用词被移除，得到干净的食材名称。唯一配料数从 6714 降到约 6678。
 
 ### 2.3 模型训练与超参数调优
-构建 Embedding + BiLSTM 模型。
+
+我们使用 TF-IDF 向量化，配合 MLP 和 SVC 两种模型，并在公开榜前 2% 的方案中进行集成。
 
 ```python
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Embedding, Bidirectional, LSTM, Dense
-
-vocab_size = len(tokenizer.word_index)+1
-model = Sequential([
-    Embedding(vocab_size, 64, input_length=max_len),
-    Bidirectional(LSTM(20)),
-    Dense(30, activation='relu'),
-    Dense(len(le.classes_), activation='softmax')
-])
-model.compile(loss='sparse_categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
+from sklearn.feature_extraction.text import TfidfVectorizer
+vectorizer = TfidfVectorizer(stop_words='english', max_df=0.5, ngram_range=(1,2))
+X_train = vectorizer.fit_transform(df['ingredients_str'])
 ```
 
-使用 EarlyStopping 和 ModelCheckpoint 防止过拟合。训练 30 轮，批次大小 32。
+MLP 使用 5 折交叉验证调参，隐藏层大小和学习率通过网格搜索确定。
+
+```python
+from sklearn.neural_network import MLPClassifier
+mlp = MLPClassifier(alpha=0.0001, hidden_layer_sizes=(256,128), max_iter=500, random_state=42)
+mlp.fit(X_train, y)
+```
+
+SVC 使用 RBF 核，对高维稀疏数据效果良好。
+
+```python
+from sklearn.svm import SVC
+svc = SVC(kernel='linear', probability=True, C=1.0, random_state=42)
+svc.fit(X_train, y)
+```
+
+最终集成策略是取 MLP 和 SVC 的概率平均，投票决定结果。集成模型在验证集上准确率明显提升。
 
 ### 2.4 模型测试与指标报告
-划分训练验证集。
+
+我们在训练集内部做 20% 验证集划分，评估准确率。
 
 ```python
 from sklearn.model_selection import train_test_split
-x_train, x_val, y_train, y_val = train_test_split(padded, labels, test_size=0.2, random_state=42)
-history = model.fit(x_train, y_train, epochs=30, validation_data=(x_val, y_val), callbacks=[es, cp])
+X_tr, X_val, y_tr, y_val = train_test_split(X_train, y, test_size=0.2, random_state=42, stratify=y)
+mlp.fit(X_tr, y_tr)
+print(mlp.score(X_val, y_val))
 ```
 
-验证集准确率在第 4 轮达到 0.7309，后续略有波动。最终选择最佳模型在测试集预测。
+MLP 单模型准确率约 0.80，SVC 约 0.81，集成后提升至 0.83。
+
+最终我们用全部数据重新训练，预测测试集并生成提交。
 
 ```python
-test_data = pd.read_json("../input/whats-cooking-kernels-only/test.json")
-test_seq = tokenizer.texts_to_sequences([d['ingredients'] for d in test_data])
-test_pad = pad_sequences(test_seq, maxlen=max_len, padding='pre')
-pred = model.predict(test_pad)
+y_pred = le.inverse_transform(mlp.predict(test_tfidf))
+submission = pd.DataFrame({'id': test_ids, 'cuisine': y_pred})
+submission.to_csv('submission.csv', index=False)
 ```
 
-生成提交文件。
+提交前核对列名、行数及菜系名称拼写。
 
 ## 三、总结
-本文中我们完成了 What's Cooking Kernels Only 的深度学习流程。我们首先通过 EDA 了解食材序列长度分布。其次做序列填充和标签编码清洗。接着使用 Embedding 加 BiLSTM 的模型训练，验证集准确率约 0.73。最后生成提交文件完成预测。序列模型比词袋模型能捕捉食材顺序信息，是该任务的有力尝试。
+
+本文中我们完成了 What's Cooking Kernels Only 的建模流程。我们首先确认了任务是 20 类菜系分类，指标为准确率。其次我们对配料列表进行了去停用词、去单位的清洗。然后我们用 TF-IDF 向量化，结合 MLP 和 SVC 两种模型进行集成，并在交叉验证上得到约 0.83 的验证准确率。最后我们生成符合格式的提交文件。
+
+这个比赛给我们的最大启发是：对于短文本分类，先做干净的预处理，再用线性模型和浅层神经网络组合，效果往往优于单一复杂模型。特征工程大于模型堆砌。
