@@ -251,6 +251,23 @@ print(per_class.sort_values('recall').head(10))
 ```
 通常头部物种的召回率很高，尾部物种很低。这说明模型还能进一步提升，方向包括重采样、focal loss 或者按类别调整阈值。
 
+训练过程中我们使用了检查点（checkpoint）和学习率衰减。检查点保存验证集准确率最高的模型权重，学习率衰减则在验证损失不再下降时把学习率减半，这两者可以避免训练后期在最优解附近来回震荡。
+
+```python
+from keras.callbacks import ModelCheckpoint, ReduceLROnPlateau
+
+callbacks = [
+    # 只保存验证准确率最高的模型
+    ModelCheckpoint('best_model.h5', monitor='val_accuracy',
+                    save_best_only=True, mode='max'),
+    # 验证损失停滞时降低学习率
+    ReduceLROnPlateau(monitor='val_loss', factor=0.5,
+                      patience=3, min_lr=1e-7)
+]
+```
+
+我们还在训练前做了小规模试跑，用几千张图片先跑 1 到 2 个 epoch，确认数据管线、标签映射和图片路径都没问题，再扩大到全量数据。这样做比一开始就全量训练更节省时间，也更容易定位错误。
+
 最后我们用全量训练数据重新训练，对测试集做预测并生成提交。
 
 ```python

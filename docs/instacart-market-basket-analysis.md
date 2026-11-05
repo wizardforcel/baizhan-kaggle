@@ -281,6 +281,31 @@ submission.to_csv('submission.csv', index=False)
 
 检查 test 用户数是否与 orders 中一致，避免漏用户。
 
+在特征数量很多时，我们还要做特征筛选。材料里有一篇 notebook 专门用随机森林的重要性来挑选特征，再用 LightGBM 训练。这样做有两个好处：一是减少噪声特征，降低过拟合；二是缩短训练时间，让我们能更快地尝试不同的 Top-N 和阈值。
+
+```python
+from sklearn.ensemble import RandomForestClassifier
+
+# 先用随机森林快速估计特征重要性
+rf = RandomForestClassifier(n_estimators=100, max_depth=10,
+                            n_jobs=-1, random_state=0)
+rf.fit(X_train, y_train)
+
+importance = pd.Series(rf.feature_importances_, index=X_train.columns)
+selected = importance.sort_values(ascending=False).head(50).index
+print('保留特征:', list(selected))
+```
+
+验证集的划分也要小心。同一个用户的所有候选商品必须整体出现在训练集或验证集里，不能按行随机切分，否则同一个用户的相似样本会同时出现在两边，导致验证分数偏高。我们按 `user_id` 分组切分，保证验证用户是模型完全没见过的。
+
+```python
+from sklearn.model_selection import GroupShuffleSplit
+
+# 按 user_id 分组，避免同一用户泄漏到两边
+gss = GroupShuffleSplit(n_splits=1, test_size=0.2, random_state=0)
+train_idx, valid_idx = next(gss.split(X, y, groups=X['user_id']))
+```
+
 ## 三、总结
 
 本文中我们完成了 Instacart Market Basket Analysis 的完整流程。我们首先通过 EDA 了解了 20 万用户、4 到 100 次订单的数据结构，确认 prior 是历史行为、train/test 是未来订单。其次我们严格只使用 prior 数据构造用户—商品表，清洗商品名并主动释放内存，避免数据泄漏。然后我们构造了商品再购率、购物车位置、最近 5 单购买次数、购买间隔等特征，用 XGBoost 预测每个用户—商品组合的再购概率，并用验证集选择 Top-N 截断。最后我们按用户平均 F1 评估，得到约 0.38 的分数，并按格式生成提交。

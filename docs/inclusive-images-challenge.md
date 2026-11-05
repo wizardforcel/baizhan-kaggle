@@ -295,6 +295,22 @@ for i, img_id in enumerate(submission['ImageID']):
 submission.to_csv('submission.csv', index=False)
 ```
 
+阶段 2 的测试图片与阶段 1 不同，类别分布也可能发生变化。材料里提到，有人在阶段 2 直接用阶段 1 的模型提交，得分会明显下降，原因是新阶段的图片更偏向训练时少见的地区。因此我们在两个阶段之间重新做了一次验证：从阶段 2 的调参图片中按地域分组计算 F2，检查模型在「训练中稀有地区」上的表现是否明显低于平均水平。如果差距很大，就对稀有地区的样本做上采样，或者在损失函数中提高这些样本的权重。
+
+```python
+# 按地域分组评估，检查模型是否在某类地区上失效
+region_scores = {}
+for region, idx in region_groups.items():
+    region_scores[region] = fbeta_score(
+        y_true[idx], y_pred[idx], beta=2, average='samples')
+
+# 找出表现最差的地区，作为后续加权的依据
+worst_region = min(region_scores, key=region_scores.get)
+print(worst_region, region_scores[worst_region])
+```
+
+类别描述文件看起来只是辅助信息，但它也有清洗价值。有些描述包含奇怪的字符或空值，材料里专门有一个 notebook 讨论「class descriptions 中的奇怪字符」。我们把这些描述统一转成小写、去掉多余空格，并检查是否有重复描述对应不同标签。重复描述会让人类阅读时混淆，但不影响模型训练，因为模型用的是 label code，不是描述文本。
+
 我们还检查提交文件的行数是否与样例一致，标签是否为空，确保格式正确。
 
 ## 三、总结

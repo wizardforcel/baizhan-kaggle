@@ -297,6 +297,24 @@ submission = pd.DataFrame({
 submission.to_csv('submission.csv', index=False)
 ```
 
+除了训练集匹配，材料里还提到可以直接查询 OEIS。OEIS 收录了数百万条整数序列，很多测试序列其实在 OEIS 里有完全相同的条目。做法是把序列的签名或前缀拿到 OEIS 的本地副本中查找，找到后把 OEIS 中该序列的下一项作为预测。
+
+```python
+# 伪代码：在 OEIS 本地索引中查找签名相同的前缀
+def lookup_oeis(seq):
+    sig = find_signature(seq, n=10)
+    hits = oeis_index.get(sig, [])
+    if not hits:
+        return None
+    # 优先选择前缀完全匹配的条目
+    for entry in hits:
+        if entry['prefix'] == seq[:10]:
+            return entry['next_term']
+    return None
+```
+
+使用 OEIS 时要特别注意版本和格式。OEIS 的数据是不断更新的，同一个序列可能有多个变体（例如从 0 开始还是从 1 开始），如果不做对齐，很容易得到偏移一位的答案。我们只把 OEIS 作为「高置信度」预测来源：只有当签名和前缀同时匹配时才采用，否则退回差分或递推方法。
+
 我们检查 `Id` 顺序和测试集是否一致，预测值是否为整数。
 
 ## 三、总结
