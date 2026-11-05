@@ -99,7 +99,16 @@ def featurize_df(df):
 
 注意一个顺序陷阱：**时间特征必须放在删除泄漏列之后再加**。因为 `nans_count` 会统计列的缺失数，如果它把 `click_bool`、`booking_bool` 也数进去，等于又把泄漏信息带回了特征里。
 
-我们也参考了 `Feature Engineering[K means]` 那份材料的思路：Train 读入后先 `dropna(axis=1, how="any")` 让所有特征没有缺失，之后用 **K-means 聚类**把用户/属性映射到聚类簇号，再把簇号当类别特征喂给模型——聚类把连续、缺失分布复杂的空间压成了少数几个「原型」，对极度稀疏的数据很有用。
+测试集走完全一样的一套处理，保证两侧特征列完全一致：
+
+```python
+# 测试集同样解析时间、做特征工程
+df_test["date_time"] = pd.to_datetime(df_test["date_time"],
+                                      infer_datetime_format=True)
+df_test = featurize_df(df_test)
+```
+
+我们也会参考 `Feature Engineering[K means]` 那份材料的思路：Train 读入后先 `dropna(axis=1, how="any")` 让所有特征没有缺失，之后用 **K-means 聚类**把用户/属性映射到聚类簇号，再把簇号当类别特征喂给模型——聚类把连续、缺失分布复杂的空间压成了少数几个「原型」，对极度稀疏的数据很有用。
 
 ### 2.3 模型训练与超参数调优
 
@@ -178,6 +187,8 @@ shap.summary_plot(shap_values, pd.concat([X_train, X_eval]))
 ```
 
 最后对每个测试 `srch_id`，按模型的预测相关性分降序输出候选酒店的 `prop_id` 列表，提交即可。材料没有披露最终 NDCG 数值，我们的判断依据是验证集上的 NDCG 与 AUC 逐步爬升、且特征重要性识别出「价格、星级、评论分、目的地」等合理变量，说明模型学到了实质规律而非噪声。
+
+材料合集里还有两条「支线」值得提一句：一是 **无监督学习路线**（`Unsupervised Learning Workflow`、`UnsupervisedLearningOTA`）——先用大样本做聚类/降维找「用户-酒店」的隐结构，再用这些结构特征喂排序模型；二是针对报价字段的**时间序列价格异常检测**（`Time series anomaly detection`、`Production Time Series of Price Anomaly Detection`）——价格异常往往对应成交行为的突变，把它们作为标志特征也有效。主线跑通之后，这两条支线都可以作为锦上添花的特征来源。
 
 ---
 
