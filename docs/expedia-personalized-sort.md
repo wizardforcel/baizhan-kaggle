@@ -103,7 +103,19 @@ def featurize_df(df):
 
 ### 2.3 模型训练与超参数调优
 
-排序模型缺乏现成的「组内排序」监督信号时，一个常用兜底是先用分类模型。材料里先做了一版**分类/ AUC 模型**：把目标转成相关性分后给 CatBoost 分类器训，评估时看它对正例的区分能力。
+排序模型缺乏现成的「组内排序」监督信号时，一个常用兜底是先用分类模型。材料里先做了一版**分类/ AUC 模型**：把目标转成相关性分后给 CatBoost 分类器训，评估时看它对正例的区分能力：
+
+```python
+from catboost import CatBoostClassifier
+
+clf = CatBoostClassifier(iterations=500, random_seed=42, verbose=100)
+clf.fit(X_train, y_train, eval_set=(X_eval, y_eval))
+# 分类视角的报告：精确率、召回率，再加 AUC 看对正例的排序能力
+print(classification_report(y_eval, clf.predict(X_eval)))
+print("AUC:", roc_auc_score(y_eval, clf.predict_proba(X_eval)[:, 1]))
+```
+
+这一版的意义是「把相关和不相关的候选分开」，但它并不知道一个组里「谁比谁更值得排前面」——当一组候选全是高分值时，AUC 帮不了排序。所以它只当对照，真正定胜负的还看下面的排序模型。
 
 主力还是**排序模型**。CatBoost 的 `Pool` 支持传入 `group_id`：同一个 `srch_id` 的所有候选构成一组，模型在组内学习「谁该排谁前面」。类别特征（酒店、目的地、星期几）直接通过 `cat_features` 声明，CatBoost 会自动做有序目标编码，省去手工 prepare 的功夫：
 

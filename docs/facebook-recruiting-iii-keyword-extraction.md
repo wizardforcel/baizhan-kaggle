@@ -75,13 +75,30 @@ tag_freq.sort_values(ascending=False).head()
 
 这就验证了长尾假设：**4 万多个标签，但前几个高频标签就占了巨大比例**。画出的频率曲线是一条陡峭的幂律尾巴。
 
-更重要的是「裁剪多少标签能覆盖多少问题」：我们按频率从高到低取 Top-N 标签，看还有多少问题至少命中一个：
+更重要的是「裁剪多少标签能覆盖多少问题」。我们写了一个辅助函数：从频率最高的标签开始逐步加，每步统计「至少命中其中一个 Top-N 标签的问题」占全体的比例：
 
 ```python
-# 计算 Top-N 标签能覆盖的问题比例
-# 结果：500 个标签覆盖 91.29% 的问题
-#       1000 个覆盖 94.57%
-#       5000 个覆盖 98.93%
+def questions_covered(one_hot_tag, ntags):
+    """给一个稀疏多标签矩阵，返回 Top-ntags 覆盖的问题比例"""
+    nq = one_hot_tag.shape[0]                 # 总问题数
+    tag_sum = one_hot_tag.sum(axis=0).tolist()[0]  # 每个标签出现次数
+    # 按出现次数降序排标签序号
+    tag_sorted = sorted(range(len(tag_sum)),
+                        key=lambda x: tag_sum[x], reverse=True)
+    # 只保留 Top-ntags 列，统计每行还剩多少标签
+    topn = one_hot_tag[:, tag_sorted[:ntags]]
+    tags_per_q = topn.sum(axis=1)
+    # 一行标签数全为 0 = 这条问题没被覆盖
+    no_tag = np.count_nonzero(tags_per_q == 0)
+    return np.round((nq - no_tag) / nq * 100, 2)
+
+# 覆盖曲线（节选）：
+# #Tags   覆盖比例
+# 500      91.29
+# 1000     94.57
+# 1500     96.11
+# 2000     97.13
+# 5000     98.93
 ```
 
 5000 个标签能覆盖 98.93% 的问题，但要训练 5000 个输出维度代价极高。本次主线折中选了 **Top-100 标签**，把问题缩到「至少带一个 Top-100 标签」的子集（约 316 万条），代价是放弃了一些长尾问题，换来训练可行。
