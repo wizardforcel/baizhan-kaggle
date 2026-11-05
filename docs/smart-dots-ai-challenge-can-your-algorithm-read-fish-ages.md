@@ -8,7 +8,7 @@
 
 问题在于，这件事高度依赖人。读龄员要经过长期训练，盯着高倍显微照片反复比对；一条鱼往往要请多位读龄员各自独立读一遍，再讨论分歧；不同实验室之间的判读习惯还可能不一样，产生系统性偏差。整个过程慢、贵，而且难以完全复现。SmartDots 是 ICES 国际海洋考察理事会推动的一个平台，目标就是把耳石图像、样本信息 and 读龄结果集中管理，并尝试用算法辅助甚至替代部分人工读龄。本场比赛就是在这个背景下提出的：让参赛者的算法直接看耳石照片，输出鱼的年龄。
 
-比赛使用的数据标注为 Sole 7a，也就是鳎鱼（sole）的一个渔业管理单元。每条样本除了若乾张耳石显微照片，还带有捕捞日期、鱼长、体重等测量信息。照片不是随比赛文件一起打包好的，而是要先读取比赛事件 JSON，拿到每张图片的下载地址，再自行从平台 API 下载。因此这道题并不是单纯的图像回归题，它还包含元数据解析、文件名与 GUID 匹配、缺失图片补全、软标签构造、模型训练和 API 提交等一整套工程流程。对刚接触深度学习的人来说，这种端到端的练习很有价值，因为它接近真实科研数据项目的形态：数据散落在不同地方，字段名字不统一，图片还可能缺几张。
+比赛使用的数据标注为 Sole 7a，也就是鳎鱼（sole）的一个渔业管理单元。每条样本除了若干张耳石显微照片，还带有捕捞日期、鱼长、体重等测量信息。照片不是随比赛文件一起打包好的，而是要先读取比赛事件 JSON，拿到每张图片的下载地址，再自行从平台 API 下载。因此这道题并不是单纯的图像回归题，它还包含元数据解析、文件名与 GUID 匹配、缺失图片补全、软标签构造、模型训练和 API 提交等一整套工程流程。对刚接触深度学习的人来说，这种端到端的练习很有价值，因为它接近真实科研数据项目的形态：数据散落在不同地方，字段名字不统一，图片还可能缺几张。
 
 ### 1.2 比赛目标
 
@@ -281,9 +281,7 @@ print('Train:', len(train_ds), 'Val:', len(val_ds))
 
 ```python
 # 优化器分组：骨干用小学习率，回归头用完整学习率
-optimiser = torch.optim.AdamW([
-    {'params': list(model.backbone.parameters()), 'lr': LR * 0.1},
-    {'params': list(model.head.parameters()), 'lr': LR}], weight_decay=1e-4)
+optimiser = torch.optim.AdamW([{'params': list(model.backbone.parameters()), 'lr': LR*0.1}, {'params': list(model.head.parameters()), 'lr': LR}], weight_decay=1e-4)
 # 余弦退火，让学习率随 epoch 平滑下降
 scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimiser, T_max=EPOCHS, eta_min=1e-6)
 best_val_mae = float('inf')

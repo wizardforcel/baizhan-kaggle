@@ -137,10 +137,12 @@ print('保留特征列数：', X.shape[1])
 首先用 80/20 分割出验证集，保持随机种子可复现。
 
 ```python
+# 导入模型、划分和评估工具
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error
 import xgboost as xgb
 
+# 按 80/20 划分训练集和验证集
 X_train, X_val, y_train, y_val = train_test_split(
     X, y, test_size=0.2, random_state=42
 )
@@ -192,6 +194,7 @@ print('真实最小/最大：', y_val.min(), y_val.max())
 为了判断模型是否有效，我们可以和一个简单的基线对比：全用训练集均值预测。
 
 ```python
+# 用训练集均值做朴素预测，计算基线 RMSE
 baseline_rmse = np.sqrt(np.mean((y_val - y_train.mean()) ** 2))
 print('预测均值的 RMSE：', baseline_rmse)
 print('模型提升比例：', (baseline_rmse - rmse) / baseline_rmse)
@@ -200,21 +203,22 @@ print('模型提升比例：', (baseline_rmse - rmse) / baseline_rmse)
 这段代码构造了一个极简单的基线：直接用训练集的平均值去预测所有验证样本。任何一个有预测力的模型，RMSE 都应该比这个基线低。`(baseline_rmse - rmse) / baseline_rmse` 表示模型相对基线的提升比例，方便量化改进幅度。如果提升比例接近 0，说明模型几乎没有学到有效信息。
 
 ```python
+# 用训练好的模型预测测试集
 final_preds = model.predict(X_test)
 
+# 按提交格式组装两列：Id 和 Predicted
 submission = pd.DataFrame({
     'Id': test[id_col],
     'Predicted': final_preds
 })
 
+# 保存为 CSV，不写入行号
 submission.to_csv('submission.csv', index=False)
 print(submission.head())
 print('已保存 submission.csv，行数：', len(submission))
 ```
 
 `final_preds` 是模型对测试集的预测结果，长度必须和测试集行数一致。组装提交表时，`Id` 直接取自测试集原始的 Id 列，`Predicted` 放模型输出。`index=False` 表示保存 CSV 时不写入 pandas 的行号，否则 Kaggle 会把行号当成一列，导致格式错误。提交前确认行数、列名 `Id, Predicted` 与模板一致，且预测值无 NaN 或 inf。至此整个流程闭环。
-
-提交前确认行数、列名 `Id, Predicted` 与模板一致，且预测值无 NaN 或 inf。至此整个流程闭环。
 
 ## 三、总结
 
