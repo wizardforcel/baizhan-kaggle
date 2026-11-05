@@ -117,4 +117,99 @@ x_adv = tf.clip_by_value(x_adv, -1.0, 1.0)
 另外一个常规检查是确认图像尺寸：Inception V3 期望 299x299，如果直接喂 224x224 或其他尺寸，卷积层会报错。所以我们统一在调用模型之前缩放和中心裁剪。
 
 ### 2.3 模型训练与超参数调优
-（见下文）
+我们先构造一个 Inception V3 的推理封装，用官方 checkpoint 加载权重。
+```python
+class InceptionModel(object):
+    def __init__(self, num_classes):
+        self.num_classes = num_classes
+        self.built = False
+
+    def __call__(self, x_input):
+        # 第一次调用时建图，后面复用同一套网络参数
+        reuse = True if self.built else None
+        with slim.arg_scope(inception.inception_v3_arg_scope()):
+            _, end_points = inception.inception_v3(
+                x_input, num_classes=self.num_classes,
+                is_training=False, reuse=reuse)
+        self.built = True
+        return end_points['Predictions'].op.inputs[0]
+```
+官方教程使用 CleverHans 的 `FastGradientMethod` 生成非定向样本。所谓非定向，就是只要求模型分错，不关心它具体错成哪一类：
+```python
+from cleverhans.attacks import FastGradientMethod
+
+with tf.Graph().as_default():
+    x_input = tf.placeholder(tf.float32, shape=batch_shape)
+    model = InceptionModel(num_classes)
+    fgsm = FastGradientMethod(model)
+    # 沿着增大分类损失的方向走一步
+    x_adv = fgsm.generate(x_input, eps=eps,
+                          clip_min=-1.0, clip_max=1.0)
+```
+真正用于防御时，我们把生成出来的 `x_adv` 和干净图像配成一对，训练分类器同时看两种输入。这个方法叫**对抗训练**，大白话就是让模型在学习过程中不断做模拟考试，而且题目故意带一点最容易让它错的干扰。
+```python
+# 伪代码：防御训练同时使用干净样本和对抗样本
+for clean_images, labels in train_loader:
+    adv_images = generate_fgsm(clean_images, labels)
+
+    # 两种输入共用标签，模型要对两种图都做对
+    clean_loss = cross_entropy(model(clean_images), labels)
+    adv_loss = cross_entropy(model(adv_images), labels)
+    loss = 0.5 * clean_loss + 0.5 * adv_loss
+
+    optimizer.zero_grad()
+    loss.backward()
+    optimizer.step()
+```
+材料给出的攻击参数是 `max_epsilon=16`，如果使用迭代攻击，可以把总预算拆成多步，每一步只走很小的梯度符号。调参时我们主要关注三个量：epsilon 越大，训练出来的模型通常越鲁棒，但干净图像准确率可能下降；对抗样本在每个 batch 中的比例越高，模型越重视鲁棒性，但训练也更慢；学习率过大会让模型在两种目标之间来回震荡。因此我们从小 epsilon、小学习率开始，逐步增加攻击强度。
+
+防御模型的调参不能只看干净验证集准确率。如果只在干净图像上选模型，很可能选出一个「平时考 100 分、遇到攻击就交白卷」的模型。我们要同时记录干净准确率和对抗准确率，并倾向于选择两者都不差的检查点。
+
+### 2.4 模型测试与指标报告
+我们先用原始 Inception V3 测量攻击前后的变化，确认评估脚本本身没有问题。
+```python
+with tf.Graph().as_default():
+    x_input = tf.placeholder(tf.float32, shape=batch_shape)
+    with slim.arg_scope(inception.inception_v3_arg_scope()):
+        _, end_points = inception.inception_v3(
+            x_input, num_classes=num_classes, is_training=False)
+    predicted_labels = tf.argmax(end_points['Predictions'], 1)
+
+    # 用同一个 checkpoint 对三种输入分别预测
+    predicted_classes = sess.run(predicted_labels,
+                                 feed_dict={x_input: images})
+    predicted_adv_classes = sess.run(predicted_labels,
+                                     feed_dict={x_input: adversarial_images})
+```
+然后计算两个最基本的指标：
+```python
+# 干净准确率：原始图像上有多少预测正确
+clean_accuracy = np.mean(predicted_classes == true_classes)
+# 对抗准确率：加入扰动后仍然预测正确的比例
+adv_accuracy = np.mean(predicted_adv_classes == true_classes)
+# 攻击成功率就是对抗准确率的补数（非定向情况下）
+attack_success = 1.0 - adv_accuracy
+print(clean_accuracy, adv_accuracy, attack_success)
+```
+教程中的示例非常直观：原始图像是 giant panda，模型预测正确；加上几乎看不出的非定向扰动后，预测变成 Samoyed。原始图像是 gondola（贡多拉），扰动后可能变成 dam（堤坝）。这说明干净准确率高并不代表模型具有安全性。
+
+对防御模型，我们按同样的方法测量，但同时在多种扰动强度下测试：
+```python
+for eps_test in [4.0, 8.0, 16.0]:
+    # 测试时也要把 0~255 的 epsilon 换算到 [-1,1]
+    scaled_eps = 2.0 * eps_test / 255.0
+    adv = fgsm.generate(x_input, eps=scaled_eps,
+                        clip_min=-1.0, clip_max=1.0)
+    pred = sess.run(predicted_labels,
+                    feed_dict={x_input: adv, y_input: true_classes})
+    print('epsilon =', eps_test,
+          'accuracy =', np.mean(pred == true_classes))
+```
+如果一个模型只在 epsilon=4 时有效，到 epsilon=16 就完全失效，说明它的鲁棒范围太窄。我们还会按类别统计错误，观察某些类别是否特别脆弱。最后确认提交格式：每行一个图像 ID 和类别预测，列名与 `sample_defense_submission` 一致，行数不变。
+
+---
+
+## 三、总结
+本文中我们完成了 NIPS 2017 防御对抗攻击挑战的入门流程。我们首先认识了对抗样本和三项挑战之间的关系，并确认开发集是 299x299 的 1001 类图像；其次把图像归一化到 Inception V3 要求的 [-1,1] 区间，严格检查尺寸和裁剪范围；接着复现了 CleverHans 的 FGSM 攻击，并根据教程整理出「干净样本 + 对抗样本」的对抗训练方案；最后分别报告干净准确率、对抗准确率和攻击成功率，还在多个 epsilon 下测试了模型的鲁棒范围。
+
+这个比赛告诉我们，**模型准确率和模型安全性是两回事**。一个模型在普通测试集上表现完美，仍可能被一条很小的梯度扰动击穿。防御不能靠最后加一个过滤器，而要在训练阶段就让模型见过攻击、学会依赖更稳定的图像线索。材料本身只提供了 Getting Started 代码，所以本文没有虚构一个排行榜分数，而是把可以由材料直接验证的攻击流程和防御评估流程完整整理出来。
