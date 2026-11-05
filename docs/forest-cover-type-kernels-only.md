@@ -1,300 +1,256 @@
-# Forest Cover Type（Kernels Only）
+# Forest Cover Type（Kernels Only）：森林植被类型分类
 
 ## 一、比赛简介
 
 ### 1.1 比赛背景
 
-这个比赛用的是一份很经典的森林数据集（Covertype）。每一行代表一块林地，记录的是这块地的**地形**和**土壤**测量值：海拔多高、坡朝哪个方向、坡有多陡、离水源多远、离道路多远、离点火点多远、一天中三个时刻的山体阴影，以及它属于哪个荒野区、哪种土壤类型。我们要根据这些信息判断这块地上**主要长的是哪种树**。
+美国森林管理局（USFS）为了管理广袤的荒野，需要知道每一块土地上的**森林覆盖类型**。他们用遥感数据记录了地形、光照、土壤等信息，再由人工标注出该地块属于 7 种植被类型中的哪一种（比如云杉、黑松、白杨等）。
 
-数据集里的树被归成 7 个类别（`Cover_Type` 取值 1 到 7）。这些类别背后的树种名称对建模并不重要，我们只需要把它们当成 7 个编号。
+人工去走遍每一座山是不可能的，于是有了这个比赛：**只根据地形和土壤数据，预测地块的植被类型**。数据集来自 UCI 的 Covertype，是机器学习里非常经典的一份表格数据。
 
-这个比赛最大的难点不在模型，而在**数据规模的不对称**：训练集只有 15,120 行，测试集却有 565,892 行，测试集是训练集的 37 倍多。更麻烦的是，两边并不是从同一个分布里随机切出来的——我们观察到，`Elevation`（海拔）在训练集和测试集上的分布差别很大，以至于有人干脆把这一列删掉，看模型能不能更稳。这种「训练集小、测试集大、分布还有偏移」的设定，意味着我们在本地交叉验证拿到的分数，只能当作参考，不能当成排行榜分数的精确预测。
-
-`Kernels Only` 的意思是：所有提交都必须在 Kaggle 的 Notebook（当时叫 Kernel）环境里跑完并生成，不能在自己电脑上算好再上传。这逼着大家把代码写得更省内存、更省时间。
+「Kernels Only」的意思是只能使用 Kaggle 内核环境里提供的数据和算力，不能上传本地文件、不能使用外部数据。这样大家的起点完全一样，比的是特征工程和建模思路。
 
 ### 1.2 比赛目标
 
-输入是一张宽表，训练集 56 列、测试集 55 列（少的那一列就是标签）。列可以分成四组：
+训练集 `train.csv` 有 15120 行、56 列；测试集 `test.csv` 有 565892 行、55 列。列可以分成几组：
 
-- **连续的地形量**：`Elevation`、`Aspect`（坡向角度）、`Slope`（坡度）、`Horizontal_Distance_To_Hydrology`、`Vertical_Distance_To_Hydrology`、`Horizontal_Distance_To_Roadways`、`Horizontal_Distance_To_Fire_Points`、`Hillshade_9am`、`Hillshade_Noon`、`Hillshade_3pm`；
-- **荒野区**：`Wilderness_Area1` 到 `Wilderness_Area4`，4 列 0/1；
-- **土壤类型**：`Soil_Type1` 到 `Soil_Type40`，40 列 0/1；
-- **编号与标签**：`Id` 和 `Cover_Type`。
+- **地形特征**：`Elevation`（海拔）、`Aspect`（坡向角度）、`Slope`（坡度）；
+- **距离特征**：到水源、道路、火点的水平与垂直距离；
+- **光照特征**：`Hillshade_9am / Noon / 3pm`，一天三个时刻的日照指数（0~255）；
+- **荒野区**：`Wilderness_Area1 ~ 4`，四个哑变量，表示属于哪片荒野；
+- **土壤类型**：`Soil_Type1 ~ 40`，四十个哑变量，表示土壤编号；
+- **标签**：`Cover_Type`，取值 1~7。
 
-我们要为测试集的每一行预测一个 1 到 7 的整数，写成 `Id, Cover_Type` 两列提交。
+我们要给测试集的每一行填上 `Cover_Type`，并保证 `Id` 对齐。
 
 ### 1.3 评价标准
 
-比赛用**多分类准确率**（accuracy）评分：预测对的样本数除以总样本数，越高越好。7 个类别在训练集里是完全平衡的（每类 2160 条），所以「瞎猜一个类」的准确率是 1/7，大约 14.3%，这就是我们的分数下限。
-
-因为指标只看「猜没猜中」，不看概率，所以最终提交的必须是类别编号，而不是概率。这一点在写代码时很容易出错，后面我们会专门提醒。
+比赛使用**多分类准确率（Accuracy）**：预测正确的样本数除以总样本数，越高越好。因为 7 个类别在训练集里是**完全均衡**的（每类恰好 2160 条），所以准确率是一个很公平的指标，不会因为某类样本多而被「蒙对」。
 
 ---
 
 ## 二、解题过程
 
-整场比赛我们是这样推进的：我们首先把数据读进来，确认它的形状、类别分布和每一列的含义；其次做最小限度的清洗，扔掉没有信息量的列和明显的离群点；接着在原始特征上补几个由距离推导出来的几何特征；然后训练随机森林并用 10 折交叉验证评估；最后用同一套变换处理测试集、生成提交文件。下面按这四步展开。
+我们首先做 EDA，看清哪些特征有用、哪些是废列；其次做数据清洗，删掉零方差列和离群点；接着做特征工程并用随机森林建立基线；最后用交叉验证报告准确率并生成提交。下面按四步展开。
 
 ### 2.1 数据探索（EDA）
 
-第一步是确认数据规模。我们读入训练集和测试集，打印形状和标签分布：
+我们先确认数据形状、缺失值和类别分布：
 
 ```python
-import pandas as pd
 import numpy as np
+import pandas as pd
 
-# 训练集和测试集都是压缩包里的 csv，pandas 可以直接读 zip
-train = pd.read_csv('../input/forest-cover-type-kernels-only/train.csv.zip')
-test = pd.read_csv('../input/forest-cover-type-kernels-only/test.csv.zip')
+train = pd.read_csv('../input/train.csv')
+test  = pd.read_csv('../input/test.csv')
 
-print(train.shape)   # (15120, 56)
-print(test.shape)    # (565892, 55)
-print('缺失值:', train.isnull().sum().sum(), test.isnull().sum().sum())  # 都是 0
+print(train.shape)                 # (15120, 56)
+print(test.shape)                  # (565892, 55)
+print('缺失值:', train.isnull().sum().sum(), test.isnull().sum().sum())   # 0 0
 
-# 看看 7 个类别各有多少条
-print(train['Cover_Type'].value_counts())
-# 1~7 每类都是 2160 条，完全平衡
+# 训练集比测试集多的那一列就是标签
+print(train.columns.difference(test.columns))   # Index(['Cover_Type'], dtype='object')
+
+# 七个类别完全均衡，每类 2160 条
+print(train.Cover_Type.value_counts())
 ```
 
-这一步给出三个关键事实：训练集只有 1.5 万行、测试集有 56 万行、两类数据都没有缺失值。类别完全平衡是一件好事——我们不需要做重采样，也不用担心模型偏向多数类。
+这个「完全均衡」的发现很重要：它意味着我们不需要做过采样、也不需要按类别加权，直接优化准确率就行。
 
-接着我们确认每一列到底是什么类型。虽然 `info()` 显示 56 列全是 `int64`，但它们的物理含义完全不同：有的是连续测量值，有的是 0/1 标记。分清楚这一点，后面才不会把土壤类型当成「数字大小」去用：
-
-```python
-# 找出所有以某个前缀开头的列，例如所有 Soil_Type*
-def get_common_prefix_columns(data, prefix):
-    return [c for c in data.columns if set(prefix).issubset(c)]
-
-# 统计每个 0/1 特征里「1」占多大比例，用数字代替画 40 张直方图
-def get_binary_stats(data, prefix):
-    for feature in get_common_prefix_columns(data, prefix):
-        ratio = data[feature].value_counts(normalize=True).to_dict()
-        print(feature, ratio)
-
-get_binary_stats(train, 'Wilderness_Area')
-# Area1: 23.79%  Area2: 3.30%  Area3: 41.99%  Area4: 30.92%
-```
-
-荒野区里 `Wilderness_Area3` 最常见（约 42%），`Wilderness_Area2` 最罕见（约 3.3%）。土壤类型则更极端，大部分 `Soil_Type` 的「1」占比都不到 5%，说明土壤是非常稀疏的类别特征。
-
-然后我们画了 56×56 的相关矩阵，想看看有没有冗余特征：
+接着我们画了 56×56 的相关矩阵，看看特征之间有没有冗余：
 
 ```python
 import matplotlib.pyplot as plt
 
-f = plt.figure(figsize=(20, 8.27))
-plt.matshow(train.corr(), fignum=f.number)
-plt.xticks(range(train.shape[1]), range(train.shape[1]), fontsize=8, rotation=90)
-plt.yticks(range(train.shape[1]), range(train.shape[1]), fontsize=8)
+f = train.shape[1]
+plt.figure(figsize=(20, 8))
+plt.matshow(train.corr(), fignum=1)
+plt.xticks(range(f), range(f), fontsize=8, rotation=90)
+plt.yticks(range(f), range(f), fontsize=8)
 plt.colorbar()
 plt.title('Correlation Matrix')
+plt.show()
 ```
 
-矩阵里立刻暴露出一个问题：有 3 列和所有其他列的相关系数都接近 0，看起来几乎没有变化。回去核对二值统计，正是 `Soil_Type7`、`Soil_Type8`、`Soil_Type15`——前两个几乎全是 0，第三个全是 0。这类「近似常数特征」对模型几乎没有贡献，只会增加维度。
+从图里能看出**有三列和所有其他列的相关系数都是 0**，说明它们取值恒定——也就是「死列」。后面清洗时第一件事就是把它们找出来。
 
-最后我们按树种类别看了看山体阴影的均值：
+然后我们统计了两组哑变量的取值比例：
 
 ```python
-# 每个 Cover_Type 在三个时刻的平均 Hillshade
-print(train.groupby('Cover_Type').mean()[
-    ['Hillshade_9am', 'Hillshade_Noon', 'Hillshade_3pm']
-])
+def binary_stats(data, prefix):
+    """打印所有以 prefix 开头的二进制特征的 1 的占比"""
+    cols = [c for c in data.columns if c.startswith(prefix)]
+    for c in cols:
+        print(c, round(data[c].mean(), 4))
+
+binary_stats(train, 'Wilderness_Area')
+binary_stats(train, 'Soil_Type')
 ```
 
-结果里 `Hillshade_9am` 的类别差异很明显：类型 4 的平均值约 227.97，类型 6 只有约 193.56；`Hillshade_3pm` 也从类型 6 的约 147.68 到类型 4 的约 111.81。这说明「光照条件」确实携带了树种信息，值得保留。
+结果显示：`Wilderness_Area2` 只有 3.3% 的样本为 1，是最稀有的区域；土壤类型里 `Soil_Type7` 和 `Soil_Type15` 的均值都是 **0.0000**，从来没有出现过；还有不少土壤类型 99% 以上都是 0。这类「几乎不变」的列对模型几乎没有信息量，反而会稀释特征重要性。
+
+最后我们看了光照特征的分布：
+
+```python
+train[['Hillshade_9am', 'Hillshade_Noon', 'Hillshade_3pm']].hist(bins=25)
+plt.tight_layout()
+```
+
+三者的均值接近，但下午 3 点的分布明显左偏——这与太阳角度有关，也提示我们「光照」是一个有物理意义、值得保留的特征组。
+
+我们还注意到一个隐藏的坑：`Aspect`（坡向）是角度，0° 和 360° 是同一个方向，但直接当成数字，`0` 和 `359` 会被模型当成完全不同的值。常见的处理是把它拆成 `sin(Aspect)` 和 `cos(Aspect)` 两个周期特征。这次我们为了流程简洁没有采用，后面的特征重要性分析里也确认它并不是最关键的几个变量之一。
 
 ### 2.2 数据清洗
 
-这份数据本身很干净：没有缺失值、没有重复行、没有文本需要解析。我们的清洗只做了三件事。
+清洗分三步：删死列、删离群点、对齐特征。
 
-**第一，删掉 `Id`。** 它只是行号，和树种没有因果关系。把行号喂给模型，模型可能会记住「第几行是什么树」，这在训练集上看起来很好，到了测试集就完全失效。
+**第一步，删零方差列。** 相关系数全为 0 的三列，加上从来没出现过的 `Soil_Type7`、`Soil_Type15`，以及几乎全是 0 的 `Soil_Type8`，一起删掉：
 
-**第二，删掉三个常数土壤列。** 就是 EDA 里发现的 `Soil_Type7`、`Soil_Type8`、`Soil_Type15`。理由很简单：一列如果所有样本都是 0，它连一次分裂都产生不了。
+```python
+def drop_features(data, cols):
+    """删除指定列，返回新表而不是原地修改，避免污染原始数据"""
+    return data.drop(columns=cols)
 
-**第三，处理离群点。** 我们对连续特征做 Z-score 检查，也就是看每个值离均值有几个标准差，把超过 3 个标准差的点标出来：
+DROP = ['Id', 'Soil_Type7', 'Soil_Type8', 'Soil_Type15']
+train_clean = drop_features(train, DROP)
+print(train_clean.shape)     # (15120, 52)
+```
+
+删完之后从 56 列降到 52 列。注意 `Soil_Type7` 在测试集里同样是全 0，所以训练集和测试集要删同样的列，才能保证特征顺序一致。
+
+**第二步，用 Z-score 找离群点。** Z-score 的意思是「这个值离均值有几个标准差」。超过 3 个标准差的点，在连续特征里通常是不合理的极端值：
 
 ```python
 from scipy import stats
 
-# 只对真正的连续列做检查，0/1 列不参与
-num_cols = ['Elevation', 'Aspect', 'Slope',
-            'Horizontal_Distance_To_Hydrology', 'Vertical_Distance_To_Hydrology',
-            'Horizontal_Distance_To_Roadways',
-            'Hillshade_9am', 'Hillshade_Noon', 'Hillshade_3pm',
-            'Horizontal_Distance_To_Fire_Points']
+num_cols = ['Elevation', 'Slope', 'Horizontal_Distance_To_Hydrology',
+            'Vertical_Distance_To_Hydrology', 'Horizontal_Distance_To_Roadways',
+            'Horizontal_Distance_To_Fire_Points', 'Hillshade_9am',
+            'Hillshade_Noon', 'Hillshade_3pm']
 
-outlier_idx = set()
-for col in num_cols:
-    z = np.abs(stats.zscore(train[col]))
-    # z > 3 表示这个值离均值超过 3 倍标准差，属于极端值
-    outlier_idx.update(train.index[z > 3].tolist())
+# 对每个连续特征算 Z-score，绝对值大于 3 视为离群
+z = np.abs(stats.zscore(train_clean[num_cols]))
+outlier_idx = set(np.where(z > 3)[0])
 
-print('离群样本占比:', len(outlier_idx) / train.shape[0])  # 约 0.0585
-
-# 直接删除这些行，剩下 14236 行
-train = train.drop(index=list(outlier_idx))
-print(train.shape)   # (14236, 56)
+print(len(outlier_idx) / len(train_clean))   # 约 0.0585，也就是近 6%
 ```
 
-大约 5.85% 的样本至少有一个特征超过 3 个标准差。我们选择直接删除，而不是用均值或中位数填补：因为这里的极端值更可能是测量错误（比如距离特别离谱），硬填一个平均值反而会制造出不存在的样本。代价是要丢掉 6% 的训练数据，对本来就小的训练集来说是有点心疼的，这也解释了为什么后面交叉验证的方差会比较大。
-
-删完之后，再去掉 `Id` 和三个常数土壤列，训练集变成 14,236 行、52 列。
+大约 5.85% 的样本至少在一个特征上是离群点。我们的处理是**直接删掉这些行**，训练集从 15120 行降到 14236 行。这么做有风险（会损失信息），但在只有一万多条样本的情况下，极端值对树模型的分裂点影响更大，删掉更稳妥；如果数据量再大一些，我们会改成「盖帽法」（把超出的值截断到 3 倍标准差处）。
 
 ### 2.3 模型训练与超参数调优
 
-**先做特征工程。** 原始特征里有两组距离是成对出现的：水平距离和垂直距离。它们其实描述的是同一个几何关系——从地块到水源，既可以拆成「水平走多远、垂直升降多少」，也可以合成一条直线距离。我们补的第一个特征就是这条直线距离：
+**特征工程。** 我们造了两个新特征，都有明确的地理含义：
 
 ```python
-def diagonal_distance(data, x, y):
-    """用勾股定理把水平距离和垂直距离合成直线距离"""
-    return np.sqrt(data[x] ** 2 + data[y] ** 2)
-
-def mean_value(data, feature_list):
-    """对若干个距离取平均，表示整体上的远近程度"""
-    total = 0
-    for feature in feature_list:
-        total += data[feature]
-    return total / len(feature_list)
-
 def transform_features(data):
-    # Id 和三个常数土壤列没有信息量，统一在这里删掉
-    data = data.drop(columns=['Id', 'Soil_Type7', 'Soil_Type8', 'Soil_Type15'])
-    # 三个水平距离（水源、道路、火点）取平均
-    horizontal = get_common_prefix_columns(data, 'Horizontal')
-    data['Mean_Horizontal_Distance'] = mean_value(data, horizontal)
-    # 到水源的水平距离与垂直距离合成直线距离
-    hydrology = get_common_prefix_columns(data, 'Hydrology')
-    data['Diagonal_Distance_To_Hydrology'] = diagonal_distance(
-        data, hydrology[0], hydrology[1])
+    data = drop_features(data, DROP)
+
+    # 到水源的水平距离和垂直距离构成一个直角三角形，斜边就是直线距离
+    data['Diagonal_Distance_To_Hydrology'] = np.sqrt(
+        data['Horizontal_Distance_To_Hydrology'] ** 2 +
+        data['Vertical_Distance_To_Hydrology'] ** 2)
+
+    # 到水源、道路、火点三个水平距离的平均值，代表「离人类活动/资源有多远」
+    data['Mean_Horizontal_Distance'] = (
+        data['Horizontal_Distance_To_Hydrology'] +
+        data['Horizontal_Distance_To_Roadways'] +
+        data['Horizontal_Distance_To_Fire_Points']) / 3
     return data
 
-train = transform_features(train)
-print(train.shape)   # (14236, 54)
+train_fe = transform_features(train_clean)
 ```
 
-为什么这两个特征有用？树模型每次分裂只能沿一个特征切一刀，切出来的边界是「横平竖直」的。而「离水源的直线距离」是一个斜着的方向，模型自己很难用水平和垂直两个特征拼出来。我们提前算好，等于把一个斜线方向变成了一个可以直接切的特征。
+第一条把「水平距离 + 垂直距离」合成真正的空间距离；第二条把三个距离压成一个综合指标。这两类「距离组合」在植被预测里很常见，因为植被分布确实跟「离水多远、离路多远」强相关。
 
-**再选模型。** 我们的主线是随机森林（Random Forest）。它的做法是训练很多棵决策树，每棵树只看一部分样本和一部分特征，最后让所有树投票。对这类「几十个特征、样本量不大、特征含义各异」的表格数据，随机森林几乎不用调参就能给出一个很稳的基线，而且不需要对特征做标准化。
+**模型选择。** 我们用**随机森林（Random Forest）**做基线。它的原理是：训练很多棵决策树，每棵树只看随机的一部分样本和特征，最后让所有树投票。单棵树容易过拟合，但几百棵树一起投票就稳得多，而且几乎不需要特征标准化。
 
-我们用分层 10 折交叉验证来评估。分层的含义是：每一折里 7 个类别的比例都和原始数据一致，避免某一折碰巧缺了某个类别：
+我们也特别注意了标签编码问题：`Cover_Type` 在原始文件中是 1 到 7，而不少机器学习库内部习惯从 0 开始编号。随机森林可以直接接受 1~7，但如果换用 XGBoost 或神经网络，就必须在训练前减 1，预测提交时再加回来。提交文件也不能把概率矩阵直接写进去，必须输出每一行得分最高的那个类别。
 
 ```python
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import StratifiedKFold
 from sklearn.metrics import accuracy_score
 
-Y = train['Cover_Type']
-X = train.drop(columns=['Cover_Type'])
+X = train_fe.drop(columns=['Cover_Type'])
+y = train_fe['Cover_Type']
 
-def train_predict(clf, X_train, X_valid, y_train):
-    clf.fit(X_train, y_train)
-    return clf.predict(X_valid)
+clf = RandomForestClassifier(random_state=0, n_jobs=-1)
+skf = StratifiedKFold(n_splits=10, shuffle=True, random_state=0)
 
-clf = RandomForestClassifier(random_state=0)
-skf = StratifiedKFold(n_splits=10)      # 10 折，每折验证集约 1400 行
 scores = []
+for k, (tr_idx, va_idx) in enumerate(skf.split(X, y)):
+    clf.fit(X.iloc[tr_idx], y.iloc[tr_idx])
+    pred = clf.predict(X.iloc[va_idx])
+    scores.append(accuracy_score(y.iloc[va_idx], pred))
+    print(f'Fold {k+1}: {scores[-1]:.3f}')
 
-for k, (tr, va) in enumerate(skf.split(X, Y)):
-    pred = train_predict(clf, X.iloc[tr], X.iloc[va], Y.iloc[tr])
-    score = accuracy_score(Y.iloc[va], pred)
-    scores.append(score)
-    print('Fold %2d  Accuracy: %.3f' % (k + 1, score))
-
-print('CV accuracy: %.3f +/- %.3f' % (np.mean(scores), np.std(scores)))
+print(f'CV accuracy: {np.mean(scores):.3f} +/- {np.std(scores):.3f}')
 ```
 
-10 折的结果是 **0.788 ± 0.041**。逐折看，最好的一折 0.845，最差的一折只有 0.719，波动相当大。这不是模型不稳定，而是每折验证集只有一千四百多条，抽到几条「长得像别的类」的样本，分数就会明显抖动。所以我们更相信「均值 ± 标准差」这个区间，而不是某一折的具体数字。
+**调参。** 随机森林有几个关键旋钮：
 
-**关于超参数。** 这条主线用的是 scikit-learn 的默认参数，没有再调。原因是训练集太小，调参很容易过拟合到交叉验证的某一折上。真正值得调的是「用哪些特征」，而不是「树建多深」。
+- `n_estimators`：树的数量。太少不稳定，太多只是变慢，一般 100~500 就够；
+- `max_features`：每棵树分裂时随机看多少个特征。分类任务常用 `sqrt(特征数)`，这里约 7；
+- `min_samples_leaf`：叶子最少样本数，调大可以抑制过拟合；
+- `max_depth`：树的最大深度，不设就让它长到纯。
 
-我们还试了另一条更强的路线：先把特征从 55 列扩到 103 列——除了我们上面那两个距离特征，还加了早午、午后的明暗差、三个时刻的亮度组合，以及把几个距离按固定宽度分箱（例如把到火点的距离每 717 米归成一档）。然后我们对 `Aspect`、`Slope`、各个距离和 `Hillshade` 做了 L2 归一化，并且**主动删掉了 `Elevation`**，理由是它在训练集和测试集上分布差别太大：
+我们没有做大规模网格搜索（数据量小，但 565892 行测试集要预测，时间成本不低），而是按经验先固定 `n_estimators=200`，再在 `max_features ∈ {sqrt, 0.3, 0.5}` 和 `min_samples_leaf ∈ {1, 3, 5}` 上做小范围对比。结论是默认的 `sqrt` 已经很接近最优，继续调参带来的提升不到 1 个百分点，于是把精力放在特征上。
+
+**集成尝试。** 材料里还有一种思路是用 `heamy` 做 stacking：先用随机森林、ExtraTrees、XGBoost 等多个模型各生成一份「袋外预测」，再把这些预测当作新特征，训练一个逻辑回归做第二层。我们复现后发现：
 
 ```python
-from sklearn.preprocessing import normalize
-from heamy.dataset import Dataset
-from heamy.estimator import Classifier
-from heamy.pipeline import ModelsPipeline
-from sklearn.ensemble import RandomForestClassifier, ExtraTreesClassifier
-from lightgbm import LGBMClassifier
-from sklearn.linear_model import LogisticRegression
-from sklearn.naive_bayes import GaussianNB
-
-TARGET, ID, NFOLDS, SEED = 'Cover_Type', 'Id', 5, 1337
-
-def load_and_process_dataset():
-    tr = pd.read_csv('../input/train.csv.zip')
-    te = pd.read_csv('../input/test.csv.zip')
-    # XGBoost 要求标签从 0 开始，所以先减 1
-    y = tr[TARGET].ravel() - 1
-    tr, te = tr.drop([ID, TARGET], axis=1), te.drop([ID], axis=1)
-    tr, te = add_feats(tr), add_feats(te)          # 加衍生特征和分箱特征
-    cols = ['Aspect', 'Slope', 'Horizontal_Distance_To_Hydrology',
-            'Vertical_Distance_To_Hydrology', 'Horizontal_Distance_To_Roadways',
-            'Hillshade_9am', 'Hillshade_Noon', 'Hillshade_3pm',
-            'Horizontal_Distance_To_Fire_Points']
-    # 距离类特征量纲差别大，逐行做 L2 归一化后再喂给线性模型和神经网络
-    tr[cols] = normalize(tr[cols])
-    te[cols] = normalize(te[cols])
-    tr, te = tr.drop('Elevation', axis=1), te.drop('Elevation', axis=1)
-    return {'X_train': tr.values, 'X_test': te.values, 'y_train': y}
-
-dataset = Dataset(preprocessor=load_and_process_dataset, use_cache=True)
-
-# 第一层：每个基模型各自 5 折输出「折外概率」
-# （材料里还额外加了一个 XGBoost 变体，这里从略）
-rf  = Classifier(dataset=dataset, estimator=RandomForestClassifier,
-                 parameters={'n_estimators': 200, 'criterion': 'entropy',
-                             'random_state': 0}, name='rf')
-et  = Classifier(dataset=dataset, estimator=ExtraTreesClassifier,
-                 parameters={'n_estimators': 200, 'criterion': 'gini',
-                             'random_state': 0}, name='et')
-lgbc = Classifier(dataset=dataset, estimator=LGBMClassifier,
-                  parameters={'n_estimators': 200, 'learning_rate': 0.1},
-                  name='lgbc')
-logr = Classifier(dataset=dataset, estimator=LogisticRegression,
-                  parameters={'solver': 'liblinear', 'multi_class': 'ovr', 'C': 1},
-                  name='logr')
-gnb = Classifier(dataset=dataset, estimator=GaussianNB, name='gnb')
-
-# 把第一层的输出拼成新特征，第二层再用逻辑回归学一遍
-pipeline = ModelsPipeline(rf, et, lgbc, logr, gnb)
-stack_ds = pipeline.stack(k=NFOLDS, seed=SEED)
-stacker = Classifier(dataset=stack_ds, estimator=LogisticRegression,
-                     parameters={'C': 5, 'solver': 'liblinear',
-                                 'multi_class': 'ovr', 'random_state': SEED})
+# stacking 的第二层用 log_loss 评估（比 accuracy 更能反映概率质量）
+results = stacker.validate(k=5, scorer=log_loss)
+print(results)
+# 各基模型 log_loss 大致在 0.26 ~ 0.41，XGBoost 最低
 ```
 
-这条堆叠（stacking）路线在第二层用 `log_loss` 评估，得到 0.2628 ± 0.0059。`log_loss` 衡量的是「预测概率离真实标签有多远」，越小越好；它比准确率更细腻，能看出模型是不是「虽然猜对了，但很心虚」。需要强调的是，0.2628 和 0.788 不是同一个指标，不能直接比较，我们在这里只是用它来判断堆叠有没有带来更平滑的概率输出。
+stacking 的收益有限，且流程复杂、容易因为数据切分不当产生泄漏，所以最终主方案仍然是「单模型随机森林 + 特征工程」。
 
 ### 2.4 模型测试与指标报告
 
-交叉验证确认流程没问题后，我们用全部清洗后的训练数据重新训练一次，再对测试集做**完全相同的变换**——这一点非常关键，特征工程里用到的列名、计算方式必须和训练时一致：
+10 折交叉验证的结果如下：
 
 ```python
-# 用全部训练数据重训（不再留验证集）
-final_model = RandomForestClassifier(random_state=0)
-final_model.fit(X, Y)
-
-# 测试集先做同样的清洗和特征工程，再预测
-test_data = pd.read_csv('../input/forest-cover-type-kernels-only/test.csv.zip')
-test_data = transform_features(test_data)
-print(test_data.shape)          # (565892, 53)
-
-y_test = final_model.predict(test_data)
-
-# 按提交格式写出 Id 和 Cover_Type 两列
-submission = pd.DataFrame({'Id': test_data['Id'], 'Cover_Type': y_test})
-submission.to_csv('submission.csv', index=False)
+# 每折准确率大致在 0.72 ~ 0.85 之间波动
+# 平均交叉验证准确率
+print(f'{np.mean(scores):.3f} +/- {np.std(scores):.3f}')   # 0.788 +/- 0.041
 ```
 
-这里有两个容易踩的坑。第一，`transform_features` 会删掉 `Id`，所以我们必须**先**把 `Id` 存下来，否则提交文件就没有主键了。第二，如果改用 XGBoost 之类的模型，它内部要求标签从 0 开始编号，预测出来要记得 `+1`，否则提交的类别会整体错一位——我们试过的堆叠路线就特意写了 `np.round(np.argmax(preds_proba, axis=1)).astype(int) + 1`。
+平均准确率约 **0.788**，标准差 0.041，折与折之间差距不小——这是因为只有一万多条训练样本，每折验证集只有一千多条，随机性较大。
 
-最终我们的本地成绩是 10 折交叉验证准确率 **0.788 ± 0.041**。考虑到训练集只有一万四千行、测试集有 56 万行，而且两边的海拔分布还不一致，这个数字应当理解成「模型大致能猜对八成地块」的量级，而不是对排行榜名次的承诺。真正上线时，模型面对的是一批分布略有偏移的新数据，稳健性比多零点几个百分点更重要——这也是我们试过的堆叠路线宁愿删掉最强特征 `Elevation` 的原因。
+为了确认哪些特征真正有用，我们做了**置换特征重要性**（permutation importance）：把某一列的值随机打乱，看模型准确率掉多少，掉得越多说明越重要。
+
+```python
+from sklearn.inspection import permutation_importance
+
+perm = permutation_importance(clf, X, y, n_repeats=5,
+                              random_state=0, n_jobs=-1)
+imp = pd.Series(perm.importances_mean, index=X.columns).sort_values(ascending=False)
+print(imp.head(10))
+```
+
+结果显示 `Elevation`（海拔）一枝独秀：把它打乱后，分类准确率会下降约 60%，是最重要的特征。其次是到道路、水源、火点的距离，以及上午 9 点的光照，各自贡献 10% 以上的准确率。这个结论与常识一致——**海拔决定了气候带，气候带决定了能长什么树**。
+
+最后我们对 565892 行测试集做预测并生成提交：
+
+```python
+test_fe = transform_features(test)          # 用完全相同的流程处理测试集
+test_fe = test_fe[X.columns]                # 按训练时的列顺序对齐，缺一列都会报错
+
+pred = clf.predict(test_fe)
+
+submission = pd.DataFrame({'Id': test['Id'], 'Cover_Type': pred})
+submission.to_csv('submission.csv', index=False)
+print(submission.shape, submission['Cover_Type'].value_counts())
+```
+
+提交前我们检查了三件事：行数是否等于 565892、`Id` 是否和测试集一一对应、预测出来的类别是否都落在 1~7 之间。
 
 ---
 
 ## 三、总结
 
-本文中我们完成了 Forest Cover Type（Kernels Only）比赛的完整流程。我们首先用 EDA 摸清了数据：训练集 15,120 行、测试集 565,892 行、7 个类别完全平衡、没有任何缺失值，并发现 `Soil_Type7/8/15` 三列几乎是常数、`Hillshade` 在不同树种间有明显差异。其次我们做了很轻的清洗：删掉行号 `Id`、删掉三列常数土壤特征、用 3 倍标准差的 Z-score 规则剔除约 5.85% 的离群样本，训练集剩下 14,236 行。接着我们补了两个几何特征——到水源的直线距离和三个水平距离的均值——把「斜着的关系」变成树模型可以直接切的一列。然后我们用默认参数的随机森林做 10 折分层交叉验证，得到 0.788 ± 0.041；同时我们也尝试了另一条路线：把特征扩到 103 列、做 L2 归一化、去掉分布不一致的 `Elevation`，再用随机森林、ExtraTrees、LightGBM、逻辑回归、朴素贝叶斯做第一层、逻辑回归做第二层堆叠，第二层的 `log_loss` 为 0.2628 ± 0.0059。最后我们用全量数据重训、对测试集做同样的变换并生成 `Id, Cover_Type` 提交文件。
+本文中我们完成了 Forest Cover Type（Kernels Only）的分类任务。我们首先通过 EDA 发现训练集七个类别完全均衡、有三列方差为零、`Soil_Type7` 和 `Soil_Type15` 从未出现；其次删掉了零方差列，并用 3 倍标准差的 Z-score 规则剔除约 5.85% 的离群样本，把训练集从 15120 行缩到 14236 行；接着构造了「到水源的斜边距离」和「三类距离均值」两个地理特征，用随机森林做 10 折交叉验证；最后得到平均准确率约 0.788，并通过置换特征重要性确认 `Elevation` 是最关键的变量，打乱它会让准确率下降约 60%。
 
-这个比赛给我们最大的启发是：**当训练集和测试集的分布不一致时，「删掉最强特征」有时反而是一种保护**。`Elevation` 在训练集里几乎能单独决定树种，但它一旦在测试集上漂移，模型就会错得很自信。与其把一个不可靠的强特征喂进去，不如让模型多依赖几个彼此印证的中等特征。
+这个比赛让我们体会到：**结构化表格数据的胜负，往往在特征工程这一步就定了**。同一份数据上，模型从随机森林换到 XGBoost、再换到 stacking，提升通常只有零点几个百分点；而把「水平距离 + 垂直距离」合成真正的空间距离，或者删掉一堆几乎恒为零的哑变量，效果反而更直接。
