@@ -103,6 +103,9 @@ for s in sorted(test['Serie'].unique()):
 
 # 确认每条序列的测试行数等于预测步数
 print('rows per series:', test.groupby('Serie').size().to_dict())
+
+# 若 indice 不连续，预测时必须先重排序
+print('sample series ids:', test['Serie'].unique()[:3])
 ```
 
 对于这类序列数据，缺失值处理要格外小心。材料没有描述缺失值，代码直接用 `as_numpy` 读取，也没有可见的填充逻辑。通常做法是先补全序列缺失或判断是否等间隔时间序列。我们按照材料的证据采取保守写法：不擅自补插。
@@ -128,6 +131,13 @@ for s, y in series_train.items():
 # 候选季节周期留给 Optuna 选择，m=1 代表没有季节项
 candidate_m = [1, 4, 6, 12]
 print('seasonal candidates:', candidate_m)
+
+# 4 对应每周、6 对应非标准周期、12 对应按月年度
+print('candidate count:', len(candidate_m))
+print('includes no seasonality:', 1 in candidate_m)
+
+# 周期越大，模型需要的训练长度越长
+print('max candidate period:', max(candidate_m))
 ```
 
 ### 2.3 模型训练与超参数调优
