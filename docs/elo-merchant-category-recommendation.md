@@ -48,7 +48,7 @@ print(train.shape)  # (201917, 8)
 print(test.shape)   # (123623, 8)
 ```
 
-训练集约 20 万张卡、测试集约 12 万张卡，是典型的小样本表格回归。接着我们从激活月份里挖出时间特征，并着手组装流水信息：
+训练集约 20 万张卡、测试集约 12 万张卡，是典型的小样本表格回归。训练样本少意味着我们不可能靠「堆数据」取胜，**只能靠特征把消费流水里的信号尽量榨出来**。接着我们从激活月份里挖出时间特征，并着手组装流水信息：
 
 ```python
 # 对 train 和 test 都做同样的时间特征
@@ -61,6 +61,8 @@ for df in [train, test]:
 ytrain = train['target']   # 取出标签后，train 里就只留特征
 del train['target']
 ```
+
+EDA 里还有一个容易被忽略的细节：两张交易流水表的字段里有相当一部分是分类型（`category_2` 有 5 个枚举值、`feature_*` 有缺省范围），数值型字段的取值跨度也很大。所以很多人把「降低内存占用」当成比赛的第一课——用不到 5 亿位宽的整数就绝不占 64 位，几千万行的流水表能因此少占一半以上的内存。
 
 ### 2.2 数据清洗
 
@@ -81,6 +83,32 @@ for c in ['A', 'B', 'C']:
 ```
 
 `new_merchant_transactions.csv` 用同一套代码处理，保证两个数据源的字段口径一致。清洗的关键原则是：**分类变量宁可拆成多列 0/1，也不要直接丢给模型当整数**，否则「1 比 2 小 1 」这种不存在的顺序关系会被模型误以为有意义。
+
+顺手加一个内存压缩函数：对每一列，看它的最大最小值能塞进哪种更窄的整数类型，就降级成那种类型。这一步不改变任何数值，只是给后续的大表合并腾出内存：
+
+```python
+def reduce_memory_usage(df, verbose=True):
+    """把列的类型从 int64/float64 降级到刚好装得下的窄类型"""
+    numerics = ['int16', 'int32', 'int64', 'float16', 'float32', 'float64']
+    start_mem = df.memory_usage().sum() / 1024**2
+    for col in df.columns:
+        col_type = df[col].dtypes
+        if col_type in numerics:
+            c_min, c_max = df[col].min(), df[col].max()
+            if str(col_type)[:3] == 'int':
+                # 依次尝试 int8 → int16 → int32，选装得下的最小类型
+                if c_min > np.iinfo(np.int8).min and c_max < np.iinfo(np.int8).max:
+                    df[col] = df[col].astype(np.int8)
+                elif c_min > np.iinfo(np.int16).min and c_max < np.iinfo(np.int16).max:
+                    df[col] = df[col].astype(np.int16)
+                elif c_min > np.iinfo(np.int32).min and c_max < np.iinfo(np.int32).max:
+                    df[col] = df[col].astype(np.int32)
+    end_mem = df.memory_usage().sum() / 1024**2
+    if verbose:
+        print('Mem. usage decreased to {:5.2f} Mb ({:.1f}% reduction)'
+              .format(end_mem, 100 * (start_mem - end_mem) / start_mem))
+    return df
+```
 
 ### 2.3 模型训练与超参数调优
 
