@@ -27,6 +27,8 @@ test = pd.read_csv("../input/predict-who-is-more-influential-in-a-social-network
 train.info()
 # 查看测试集基本信息
 test.info()
+# 查看训练集前几行，确认列名和数据样子
+train.head()
 ```
 
 为了确认数据质量，我们检查缺失值，并统计目标分布。代码显示训练集和测试集都没有缺失样本，目标分布接近平衡，这为后续建模提供了良好基础。我们还看了前十行，确认 A_ 和 B_ 列一一对应，且数值范围合理。
@@ -38,6 +40,11 @@ print("Any missing sample in test set:", test.isnull().values.any())
 # 统计目标列 Choice 的频次分布
 train_outcome = pd.crosstab(index=train["Choice"], columns="count")
 print(train_outcome)
+# 打印两种类别的占比，确认是否平衡
+ratio_0 = train_outcome.loc[0, 'count'] / len(train)
+ratio_1 = train_outcome.loc[1, 'count'] / len(train)
+print("类别 0 占比:", round(ratio_0, 3))
+print("类别 1 占比:", round(ratio_1, 3))
 ```
 
 通过频次表我们得知 0 类 2698 条、1 类 2802 条。随后我们列出了用于建模的特征名，包括两名用户的粉丝数、关注数、收录数、提及收发、转发收发、发帖数和三个网络特征，共 17 个原始特征。为了进一步了解数据，我们查看了每组特征的含义：A_follower_count 表示用户 A 的关注者人数，A_following_count 表示 A 关注了多少人，A_listed_count 表示 A 被多少人加入了列表，A_mentions_received 是 A 被@的次数，A_retweets_received 是 A 被转发的次数，A_mentions_sent 和 A_retweets_sent 则相反，是 A 主动发起的行为。三个 network_feature 则是比赛方匿名化的网络结构指标，我们不清楚具体含义，但可以当作普通数值特征使用。EDA 阶段没有画图，但通过 describe 和简单的分组聚合，我们意识到 A 和 B 的数值存在明显差异，且同一个人在不同指标上的表现也可能完全相反，直接比较 A 和 B 的差别，比单独看某一个绝对值更有信息量。
@@ -127,12 +134,18 @@ print("CV AUC:", cv_auc)
 
 ```python
 from sklearn.ensemble import RandomForestClassifier
-# 定义随机森林模型
+# 定义随机森林模型，100 棵树
 rfcla = RandomForestClassifier(n_estimators=100, random_state=168, n_jobs=-1)
 # 训练模型
 rfcla.fit(train[features], train[target])
-# 在测试集上预测
+# 在测试集上预测：predict 返回 0/1 类别
 predictions_rf = rfcla.predict(test[features])
+# 打印前 10 个预测结果
+print(predictions_rf[:10])
+# 生成与提交样例格式相同的表格
+submission_rf = pd.DataFrame({"Id": list(range(1, len(predictions_rf)+1)),
+                              "Choice": predictions_rf})
+print(submission_rf.head())
 ```
 
 ### 2.4 模型测试与指标报告
@@ -148,6 +161,10 @@ lgb_bay = []
 for i in range(len(predictions)):
     lgb_bay.append(predictions[i].mean())
 submission['Choice'] = lgb_bay
+# 检查行数与测试集是否一致
+print(submission.shape)
+# 查看前几行确认列名和内容
+print(submission.head())
 # 保存提交文件
 submission.to_csv('sub.csv', index=False, header=True)
 ```
@@ -157,4 +174,4 @@ submission.to_csv('sub.csv', index=False, header=True)
 ## 三、总结
 本文中我们完成了社交网络影响力预测的完整流程。我们首先通过 EDA 摸清数据：训练集 5500 条、测试集 5952 条，目标列基本平衡且无缺失值。其次我们做了轻量数据清洗，处理 inf 值并构造了 A 与 B 的差分和比率特征。接着我们采用贝叶斯优化的 LightGBM 模型，结合 20 折分层交叉验证进行训练与调优，得到 CV AUC 0.8719。最后我们生成了符合格式的提交文件，并在验证集上确认指标稳定。
 
-这个比赛给我们的最大启发是：相对特征比绝对特征更有效。在社交影响力这类对比任务中，直接比较两个用户的粉丝数、转发数等指标，并构造比值，能够让树模型更快捕捉到「谁更大」的规律。对入门者而言，本项目也展示了特征工程与交叉验证的重要性：不依赖复杂的深度学习，用良好的特征和稳定的验证流程就能取得不错的排行榜成绩。
+这个比赛给我们的最大启发是：相对特征比绝对特征更有效。在社交影响力这类对比任务中，直接比较两个用户的粉丝数、转发数等指标，并构造比值，能够让树模型更快捕捉到「谁更大」的规律。对入门者而言，本项目也展示了特征工程与交叉验证的重要性：不依赖复杂的深度学习，用良好的特征和稳定的验证流程就能取得不错的排行榜成绩。即使样本只有几千条，只要特征设计合理，依然可以逼近 0.87 的 AUC。

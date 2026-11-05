@@ -12,10 +12,9 @@
 
 ### 1.2 比赛目标
 
-本比赛的目标是构建一个模型，根据五张扑克牌的花色和点数信息，准确预测该手牌所属的牌型类别。输入数据包含 10 个特征列：S1-S5 表示五张牌的花色编号，C1-C5 表示五张牌的点数编号，以及目标列 hand 表示牌型编号。训练集包含 25,010 条样本，测试集包含约 1,000,000 条样本（不同来源数据规模略有差异）。
+本比赛的目标是构建一个模型，根据五张扑克牌的花色和点数信息，准确预测该手牌所属的牌型类别。输入数据包含 S1-S5 表示花色、 C1-C5 表示点数以及目标列 hand。总共有十个牌型类别，从 0 到 9，分别对应高牌到皇家同花顺。训练集有 25,010 条样本，测试集规模更大。
 
-具体任务是将每组手牌映射到 0-9 这十个类别中，其中：
-0 代表高牌（无组合），1 代表一对，2 代表两对，3 代表三条，4 代表顺子，5 代表同花，6 代表葫芦，7 代表四条，8 代表同花顺，9 代表皇家同花顺。
+数据集的规则完全确定，理论上一个写对的程序就能拿到满分，这也是本比赛的特点。
 
 ### 1.3 评价标准
 
@@ -27,7 +26,15 @@
 
 我们首先读入数据，检查数据的完整性和基本统计信息。训练数据包含 11 列，共 25,010 个样本，不存在缺失值。各列的唯一值数量显示 S1-S5 花色列各有 4 个唯一值，对应四种花色；C1-C5 点数列各有 13 个唯一值，对应 A-K 的点数；目标列 hand 有 10 个类别。我们观察到明显的类别不均衡现象，高牌（0）有 12,493 个样本，占总数的约 50%，一对（1）有 10,599 个样本，占约 42%，而四条（7）只有 6 个样本，皇家同花顺（9）和同花顺（8）各只有 5 个样本。这种长尾分布对模型训练构成挑战。
 
-我们绘制了花色和点数的分布图，发现各花色和点数分布相对均匀，表明数据采样是随机的。我们还计算了各牌型的样本数量分布，直观展示了类别不平衡的严重性。通过可视化各特征的相关性，我们初步判断可以直接从原始特征中提取规则。
+```python
+# 用 pandas 查看训练集的形状和缺失值
+train = pd.read_csv('train.csv')
+print(train.shape)
+print(train.isnull().sum().sum())
+# 用 value_counts 查看类别分布
+print(train['hand'].value_counts().sort_index())
+```
+这行代码确认没有缺失值，并展示了类别分布的长尾特征。我们还计算了每列的唯一值数量，确认花色和点数的编码范围正确。EDA 的结论是数据干净但类别极不平衡，适合使用规则方法而不是纯统计模型。
 
 ### 2.2 数据清洗
 
@@ -235,6 +242,65 @@ def preproc(df):
     df = df.drop(['S1', 'S2','S3','S4','S5','C1','C2','C3','C4','C5'], axis=1)
     return df
 ```
+这一段代码通过花色是否相同判断同花，通过点数乘积和阶乘关系判断顺子，通过唯一值数量判断对子、三条、四条等。我们先用这些衍生特征训练随机森林，观察模型在稀有类别上的表现。材料中提到随机森林在训练集上准确率较高，但对四条、葫芦等样本极少的类别预测不稳定，这是因为机器学习的统计方法依赖样本量，而规则判断不受样本量影响。
+
+
+```python
+from scipy import math
+
+def preproc(df):
+    df['min-flush'] = (df['S1']==df['S2'])&(df['S2']==df['S3'])&(df['S3']==df['S4'])&(df['S4']==df['S5'])
+    # 计算点数的最小值
+    a1 = df[['C1', 'C2', 'C3', 'C4', 'C5']].min(axis=1)
+    b1 = 5*a1 + 10
+    # 计算阶乘差用于判断顺子
+    a2 = df[['C1', 'C2', 'C3', 'C4', 'C5']].max(axis=1).apply(math.factorial)
+    b2 = (df[['C1', 'C2', 'C3', 'C4', 'C5']].min(axis=1) -1).apply(math.factorial)
+    c = a2/b2
+    df['min-straight'] = ((df['C1']*df['C2']*df['C3']*df['C4']*df['C5'] == c) & 
+                          (df['C1']+df['C2']+df['C3']+df['C4']+df['C5'] == b1)) | \
+                         ((df[['C1', 'C2', 'C3', 'C4', 'C5']].min(axis=1) == 1) & 
+                          (df['C1']*df['C2']*df['C3']*df['C4']*df['C5'] == 17160))
+    df['min - straight flush'] = df['min-flush'] & df['min-straight']
+    df['RF'] = df[df['min - straight flush']==True][['C1', 'C2', 'C3','C4', 'C5']].sum(axis=1) == 47
+    df['RF'] = df['RF'].fillna(False)
+    df['straight flush'] = (df['min - straight flush'] ==True) & (df['RF'] ==False)
+    df['straight flush'] = df['straight flush'].fillna(False)
+    df = df.drop('min - straight flush', axis=1)
+    df['flush'] = (df['straight flush'] == False) & (df['min-flush'] ==True) & (df['RF'] ==False)
+    df['straight'] = (df['straight flush'] == False) & (df['min-straight'] ==True) & (df['RF'] ==False)
+    df = df.drop('min-straight', axis=1)
+    df = df.drop('min-flush', axis=1)
+    df['flush'] = df['flush'].fillna(False)
+    df['straight'] = df['straight'].fillna(False)
+    df['Nothing in hand'] = (df[['C1', 'C2', 'C3', 'C4', 'C5']].nunique(axis=1) == 5) & \
+                           (df['straight'] ==False) & (df['flush'] == False) & \
+                           (df['RF'] == False)& (df['straight flush'] == False)
+    df['Nothing in hand'] = df['Nothing in hand'].fillna(False)
+    df['One pair'] = (df[['C1', 'C2', 'C3', 'C4', 'C5']].nunique(axis=1) == 4)
+    df['One pair'] = df['One pair'].fillna(False)
+    df['Four of a kind or Full house'] = df[['C1', 'C2', 'C3', 'C4', 'C5']].nunique(axis=1) == 2
+    df['Two pairs or Three of a kind'] = df[['C1', 'C2', 'C3', 'C4', 'C5']].nunique(axis=1) == 3
+    df['Four of a kind or Full house'] = df['Four of a kind or Full house'].fillna(False)
+    df['Two pairs or Three of a kind'] = df['Two pairs or Three of a kind'].fillna(False)
+    dff = np.array(df[['C1', 'C2', 'C3', 'C4', 'C5']])
+    a = []
+    for i in range(dff.shape[0]):
+        u, v = np.unique(dff[i], return_counts=True)
+        a.append(4 in v)
+    df['Four of a kind'] = np.array(a)
+    df['Full house'] = (df['Four of a kind']==False) & (df['Four of a kind or Full house'] ==True)
+    df = df.drop('Four of a kind or Full house', axis=1)
+    a = []
+    for i in range(dff.shape[0]):
+        u, v = np.unique(dff[i], return_counts=True)
+        a.append(set(v) == set([1,1,3]))
+    df['Three of a kind'] = np.array(a)
+    df['Two pairs'] = (df['Three of a kind']==False) & (df['Two pairs or Three of a kind'] ==True)
+    df = df.drop('Two pairs or Three of a kind', axis=1)
+    df = df.drop(['S1', 'S2','S3','S4','S5','C1','C2','C3','C4','C5'], axis=1)
+    return df
+```
 
 使用构建的特征训练随机森林模型：
 
@@ -292,20 +358,6 @@ print("提交文件已保存")
 规则方法在测试集上实现了 100% 的准确率。每个类别的预测数量与训练集中真实分布完全一致，表明模型具有完美的泛化能力。我们使用交叉验证进一步验证了规则的稳定性，结果显示所有折都达到 100% 准确率。
 
 最终我们选择规则方法作为最终方案，因为它不仅准确率最高，而且计算效率高、逻辑清晰、可解释性强。
-
-### 2.5 结果讨论与工程反思
-
-在本次比赛中，我们深刻体会到模式识别与规则工程的平衡之美。扑克牌型识别本质上是一个组合数学问题，五张牌的总数约为 2,598,960 种可能，而我们的训练集仅有 25,010 个样本，相当于只覆盖了总组合数的不到 1%。这意味着模型必须具备强大的泛化能力，而规则方法正好利用了扑克规则的数学确定性，实现了超出样本数量的泛化。
-
-我们分析了不同牌型的理论概率，发现高牌的理论概率约为 50%，一对约为 42%，而四条仅有 0.024%。这种极端的类别不平衡使得传统的机器学习模型难以学习稀有类别的特征，因为这些类别在训练集中样本极少。随机森林虽然可以通过集成学习提高鲁棒性，但对四条、葫芦等类别的预测仍然存在不确定性。而规则方法不受样本数量限制，只要逻辑正确，就能正确识别所有类别。
-
-在数据处理方面，我们注意到批量处理的必要性。由于测试集可能包含上百万样本，逐行应用规则函数会导致严重的性能问题。我们采用了分块处理策略，将测试集分成 25,000 行的块分别处理，既保证了内存使用效率，又提高了计算速度。这种工程优化在实际生产环境中非常重要。
-
-此外，我们还探讨了规则函数的实现细节。例如，顺子的判断需要特别处理 A-2-3-4-5 的特殊情况，即小顺子。皇家同花顺的判断需要同时满足花色相同和点数为 10-J-Q-K-A 的条件。我们通过排序和差值计算来检测点数的连续性，这种方法比硬编码所有可能情况更加优雅和可维护。
-
-在模型对比方面，我们发现规则方法不仅准确率达到 100%，而且推理速度极快。对于每张手牌，规则判断的计算复杂度约为 O(n) 其中 n=5，基本可以忽略不计量级。而随机森林需要遍历上百棵决策树，计算量显著增加。在实际应用中，对于规则明确的问题，优先考虑规则工程是一种更可靠的解决方案。
-
-最后，本比赛给我们的启示是：数据科学不仅是选择最复杂的模型，更是理解问题本质并选择最合适的方法。对于确定性规则问题，显式编程往往优于隐式学习；对于模糊、不确定或高度复杂的模式，机器学习才展现出其真正价值。这种平衡思维是每个数据科学家需要培养的核心能力。
 
 ## 三、总结
 
