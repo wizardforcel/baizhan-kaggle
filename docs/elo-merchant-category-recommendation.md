@@ -223,7 +223,11 @@ sub = pd.DataFrame({'card_id': xtest['card_id'], 'target': predictions})
 sub.to_csv('sub_lgb.csv', index=False)
 ```
 
-需要说明的是，我们只采用了「特征工程 + 单 LightGBM」这一条主线。材料里还有不少别的高分路线：有人用 H2O AutoML、Fastai 做深度拟合，有人做 stacking/多模型融合，还有人特别处理 `purchase_amount` 里的无穷大异常行（Deep 模型遇到 inf 会爆数值）。在另一份混合方案里,用户通过多模型 blend 把私有榜打到了 **3.61319**——这说明特征工程（比如把参考日期 `month_lag` 相关细节做细）比单纯堆模型更容易提分。
+需要说明的是，我们只采用了「特征工程 + 单 LightGBM」这一条主线。材料里还有不少别的高分路线：有人用 H2O AutoML、Fastai 做深度拟合，有人做 stacking/多模型融合，还有人特别处理 `purchase_amount` 里的无穷大异常行（Deep 模型遇到 inf 会爆数值）。
+
+其中两条支线特别值得记下来。一是**「先分类、再回归」**（classfy_first and then regress）：先用分类器判断一张卡是否属于「高忠诚度」群体，再对群体内部单独回归。这样做等于把「是不是活跃用户」和「活跃到什么程度」拆成两个问题，对少数极端值更稳。二是 **RFM 分析**（Recency 最近一次消费、Frequency 消费频次、Monetary 消费金额）：材料里有多篇用 RFM 给客户打分的 notebook，它其实和我们按 `card_id` 聚合出的 sum/mean/max/min 是同一件事的另一种说法——只是 RFM 事先规定了三个维度，而我们的聚合是让模型自己挑。
+
+在另一份混合方案里,用户通过多模型 blend 把私有榜打到了 **3.61319**——这说明特征工程（比如把参考日期 `month_lag` 相关细节做细）比单纯堆模型更容易提分。
 
 ---
 
