@@ -245,6 +245,8 @@ assert len(submission) == len(sample) and set(submission["id"]) == set(sample["i
 print("Saved submission.csv with", len(submission), "predictions")
 ```
 
+交卷前我们还守了两条底线：第一，**绝不把测试集真实票房查出来塞进特征**，哪怕只用来「校准」也不行，那是作弊；第二，**绝不用上映后的信息**（评分、投票数、热度），否则离线分数再漂亮，上线也拿不到。比赛比的是「上映前能不能猜准」，而不是「上映后抄答案」。
+
 ---
 
 ## 三、总结
