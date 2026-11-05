@@ -314,7 +314,13 @@ plot_importance(importance_df)
 from sklearn.metrics import accuracy_score, f1_score, confusion_matrix
 
 # 用最优参数在全部训练数据上重新拟合
-final_model = XGBClassifier(**study.best_params)
+# 显式声明三分类目标和概率输出，避免不同版本的默认值不一致
+final_model = XGBClassifier(
+    **study.best_params,
+    objective='multi:softprob',
+    num_class=3,
+    eval_metric='mlogloss',
+)
 final_model.fit(X, y)
 
 # 在验证集上评估；注意 X_valid 已经包含在 X 里，这个分数会偏高
