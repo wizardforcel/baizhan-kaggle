@@ -186,6 +186,8 @@ clf.fit(X_sample, y_sample)
 important_indices = np.where(clf.feature_importances_ > 0.005)[0]
 ```
 
+这里有一个容易被忽略的坑：**筛特征只能看训练数据**。如果把验证集或测试集的信息带进重要性排序，就等于提前偷看了答案，后面的 MCC 会虚高。我们的做法是在训练集内部再切一小块专门用来筛特征，筛完把这份列名固定下来，之后所有折都用同一份列表。
+
 **最终模型。** 主线采用二阶方案的配置：`objective="binary:hinge"`（直接输出 0/1，适合 MCC）、`max_depth=10`、`eta=0.1`、`subsample=0.9`、`colsample_bytree=0.5`，训练 65 轮并用验证集早停：
 
 ```python
