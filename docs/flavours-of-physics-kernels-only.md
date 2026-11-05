@@ -229,7 +229,9 @@ print('Best CV AUC:', cv['auc-mean'][best_niter])
 
 这一个配置下我们得到的交叉验证 AUC 约 **0.9133**。注意这里的 AUC 只是「排序能力」的本地估计，排行榜真正看的是加权截断 AUC，两者不能直接换算。AUC 的意思是：随机抽一个信号、再随机抽一个背景，模型把信号排在背景前面的概率。它适合在没有测试集答案时比较模型，但它并不关心模型在什么阈值上截断，也不直接反映最终能保留多少稀有信号。因此我们不会因为 AUC 高就跳过 KS 和 CvM 检验。
 
-此外，贝叶斯搜索中的 `feature_fraction` 和 `bagging_fraction` 是两种随机抽样：前者让每棵树只看一部分列，后者让每棵树只看一部分样本。这样做能减少树与树之间的相似性，也能降低过拟合风险；`lambda_l1`、`lambda_l2` 则像给模型加「复杂度罚分」，防止它为了记住训练集而建立过于曲折的决策边界。：**UGBC（Uniform Gradient Boosting Classifier）**，它来自高能物理常用的 `hep_ml` 库。它和普通梯度提升的区别在于损失函数里多了一项「平坦性约束」：要求模型在 `mass` 的各个区间里给出的平均预测尽量一致。这正是 CvM 检验想考察的东西，所以用它对冲 CvM 超标的风险：
+此外，贝叶斯搜索中的 `feature_fraction` 和 `bagging_fraction` 是两种随机抽样：前者让每棵树只看一部分列，后者让每棵树只看一部分样本。这样做能减少树与树之间的相似性，也能降低过拟合风险；`lambda_l1`、`lambda_l2` 则像给模型加「复杂度罚分」，防止它为了记住训练集而建立过于曲折的决策边界。
+
+接着我们试第二种模型：**UGBC（Uniform Gradient Boosting Classifier）**，它来自高能物理常用的 `hep_ml` 库。它和普通梯度提升的区别在于损失函数里多了一项「平坦性约束」：要求模型在 `mass` 的各个区间里给出的平均预测尽量一致。这正是 CvM 检验想考察的东西，所以用它对冲 CvM 超标的风险：
 
 ```python
 from hep_ml.gradientboosting import UGradientBoostingClassifier
@@ -257,7 +259,7 @@ ugbc.fit(train_add[col + ['mass']], train_set['signal'])
 
 ### 2.4 模型测试与指标报告
 
-本地没有测试集标签，也没有直接算 AMS 的官方脚本，所以我们用两道「体检」来判断模型能不能安全提交。
+本地没有测试集标签，也没有直接算加权截断 AUC 的官方脚本，所以我们用两道「体检」来判断模型能不能安全提交。
 
 ```python
 # 用训练好的 LightGBM 给两份对照数据打分
