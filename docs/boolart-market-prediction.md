@@ -196,6 +196,8 @@ def pearson_score(labels, preds):
 
 如果绕开 LB 的 bug，本地的复算分数才是我们真正用来对比方案的标准。我们列出的后续优化方向（也都能在材料里找到依据）：一是改用 RNN/Seq2Seq 对每个标的的历史做时序编码，再接入 Investment-wise Transformer 的表头，这样能捕捉趋势与波动；二是引入其它机器学习或深度模型做**模型融合**（ensemble），用多个差异化的模型互相补位。
 
+确认模型可用后，我们直接对测试集预测，并用**本地提供的真实标签**来复核：
+
 ```python
 # 用训练好的模型对测试集（每个时刻一组）预测
 test_pred = trainer.predict(test_ds)
