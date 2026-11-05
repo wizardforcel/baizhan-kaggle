@@ -143,9 +143,20 @@ model.fit(X_train, y_train)              # y = interested
 prob = model.predict_proba(X_test)[:, 1]  # 输出兴趣概率，按概率排序推荐
 ```
 
+如果要用社交特征，可以这样把「好友列表」和「活动报名人数」交叉起来——用集合取交集，天然跳过重复 id：
+
+```python
+# 伪代码：某用户的好友中有几位确定去某活动
+friends_set = set(user_friends.friends[uid].split())       # 好友 id 集合
+going_set = set(event_attendees.yes[event_id])             # 已报名者 id 集合
+friends_going = len(friends_set & going_set)               # 交集大小
+```
+
 调参重点放在三类超参数上：树的数量 `n_estimators`、深度 `max_depth`、学习率 `learning_rate`。考虑到训练集只有 1.5 万行，用带早停的交叉验证防过拟合比无限堆树更重要。数据划分上必须**按时间切分**（用最新的 20% 当验证集），因为推荐系统里「未来」的行为才是我们要预测的，随机切分会高估成绩。
 
 模型细节上有两个小坑：一是 `interested` 的**正样本占比可能不高**（绝大多数展示都是「用户看了但没点」的 0），类别不均衡时要在损失里给正样本加权重，或者在预测后单独调阈值；二是 `invited`、`timestamp` 这类「曝光侧」信息测试集里也有，属于合法特征，而 `interested`/`not_interested` 是测试集没有的标签侧字段，构建验证集时同样要保证「未来不泄漏」。
+
+另外一个工程细节：`timestamp` 的精度是「±2 小时」，也就是时间列本身带噪声，所以从时间戳拆出的「小时」只能当粗粒度特征，不能当精确的行为时刻去对齐别的表。而 `user_friends.csv` 解析后是用户 id 的集合，可以用 `set` 判断「某个用户的某个好友是否打算去某活动」，再把命中数量作为社交热度特征——这类特征在冷启动用户（历史交互为 0）身上尤其值钱，因为画像和社交是那时仅有的信号。
 
 ### 2.4 模型测试与指标报告
 

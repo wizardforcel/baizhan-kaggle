@@ -144,7 +144,19 @@ def aggregate_historical_transactions(history):
     return agg_history
 ```
 
-用 `groupby(...).agg(字典)` 一次算出几十个统计量。聚合完的 `new_merchant` 流水也走同样的函数（列名前缀换成 `new_`），把两个结果分别 `left join` 到工卡表上。合并后特征从 8 列涨到 86 列，这些列才是模型真正的粮食。
+用 `groupby(...).agg(字典)` 一次算出几十个统计量。聚合完的 `new_merchant` 流水也走同样的函数（列名前缀换成 `new_`），把两个结果分别 `left join` 到工卡表上：
+
+```python
+# 新商户流水先合并，再合并历史流水
+xtrain = pd.merge(train, new_trans, on='card_id', how='left')
+xtest = pd.merge(test,  new_trans, on='card_id', how='left')
+print(xtrain.shape)   # (201917, 47)：8 + 39 个 new_* 特征
+xtrain = pd.merge(xtrain, history, on='card_id', how='left')
+xtest  = pd.merge(xtest,  history, on='card_id', how='left')
+print(xtrain.shape)   # (201917, 86)：再加上 hist_* 特征
+```
+
+合并后特征从 8 列涨到 86 列，这些列才是模型真正的粮食。用 `left join` 而不是内连接是刻意的：测试集里有些卡在流水表里没有记录（`join` 后是空值），LightGBM 天然会把这些空值当作「该卡没有这种交易」处理，所以空值保留不填充反而是对的。
 
 模型我们选 **LightGBM** 回归树：它对表格数据支持好、训练快，还能天然处理缺失值（流水少的卡在聚合列上就是空）。调参我们直接用 `optuna.integration.lightgbm` 的 LightGBMTuner，它会在训练过程中自动按贝叶斯优化搜索 `num_leaves`、`feature_fraction`、`learning_rate` 等关键参数，比手工网格快得多。整体用 5 折交叉验证，每折都早停：
 

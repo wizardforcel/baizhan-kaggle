@@ -148,7 +148,16 @@ fig.add_trace(go.Scatter(x=concat.index, y=concat['pnl_cum'],
 fig.show()
 ```
 
-回测时要重点看的不是最后一个数字，而是**曲线的形态**：稳步上升说明策略靠的是模型判断力；忽上忽下、尾段剧烈摆动，说明策略在靠运气。得到满意结果后，我们对测试集的 `x_test` 做同样的预测流程，把结果放进 `submission.csv`（列名 `forecast`，索引 `ID`）提交即可。
+回测时要重点看的不是最后一个数字，而是**曲线的形态**：稳步上升说明策略靠的是模型判断力；忽上忽下、尾段剧烈摆动，说明策略在靠运气。得到满意结果后，我们对测试集做同样的预测、组装提交文件：
+
+```python
+# 用最终模型预测测试集，拼成规定的格式
+pred = model.predict(x_test)
+sub = pd.DataFrame(pred, columns=['forecast'])
+sub.index.name = "ID"             # 提交文件用 ID 做索引
+sub.to_csv('/kaggle/working/submission.csv')
+print("File submission.csv created")
+```
 
 这里要说明的是：材料本身只是赛方提供的**起步模板**，没有给出公开榜上的具体分数或前几名方案，所以我们能确定的只是「从上述流程出发做迭代」这一条路径。可以预期的高分方向是：换用梯度提升树、把失衡量作为特征直接喂给模型（而不是只用它做风险截断）、以及把「预测符号的准确率」当作比 RMSE 更贴近 PnL 的优化目标。
 
