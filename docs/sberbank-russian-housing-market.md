@@ -8,7 +8,7 @@ Sberbank 是俄罗斯历史最悠久、规模最大的银行。银行发起这�
 
 ### 1.2 比赛目标
 
-比赛的目标是预测每一笔房屋交易的价格。训练数据共 30471 条样本、292 个特征列；测试数据共 7662 条样本、291 个特征列。训练数据中，id 是交易编号，timestamp 是交易时间，full_sq 是房屋总面积，life_sq 是居住面积，floor 是所在楼层，max_floor 是建筑总楼层，material 是建筑材料，build_year 是建筑年份，num_room 是房间数，kitch_sq 是厨房面积，state 是房屋状态。区域类特征包括 raion_popul 区域人口、green_zone_part 绿地占比、children_preschool 幼儿园数量、school_quota 学校配额、hospital_beds_raion 医院床位数、university_top_20_raion 名校数量、shopping_centers_raion 商场数量等。距离类特征包括 metro_min_walk 到地铁的步行时间、kindergarten_km 到幼儿园的距离、park_km 到公园的距离、kremlin_km 到克里姆林宫的距离等。除此之外，macro.csv 提供了俄罗斯宏观经济和金融部门的时间序列数据，可以通过 timestamp 与房屋数据合并。目标列是 price_doc，表示这笔交易的价格。测试集不包含 price_doc，参赛者最终需要提交一个包含 id 和 price_doc 两列的文件。
+比赛的目标是预测每一笔房屋交易的价格。训练数据共 30471 条样本、292 个特征列；测试数据共 7662 条样本、291 个特征列。训练数据中，id 是交易编号，timestamp 是交易时间，full_sq 是房屋总面积，life_sq 是居住面积，floor 是所在楼层，max_floor 是建筑总楼层，material 是建筑材料，build_year 是建筑年份，num_room 是房间数，kitch_sq 是厨房面积，state 是房屋状态。区域类特征包括 raion_popul 区域人口、green_zone_part 绿地占比、children_preschool 幼儿园数量、school_quota 学校配额、hospital_beds_raion 医院床位数、university_top_20_raion 名校数量、shopping_centers_raion 商场数量等。距离类特征包括 metro_min_walk 到地铁的步行时间、kindergarten_km 到幼儿园的距离、park_km 到公园的距离、kremlin_km 到克里姆林宫的距离等。除此之外，macro.csv 提供了俄罗斯宏观经济和金融部门的时间序列数据，可以通过 timestamp 与房屋数据合并。macro.csv 包含了物价指数、利率、工资水平等指标，这些宏观变量能够反映整体经济形势对购房需求的推动作用。目标列是 price_doc，表示这笔交易的价格。测试集不包含 price_doc，参赛者最终需要提交一个包含 id 和 price_doc 两列的文件。提交文件的格式要严格按照样例，列名不能写错，否则会被判无效。
 
 ### 1.3 评价标准
 
@@ -47,7 +47,17 @@ df_train['price_doc_log'] = np.log(df_train['price_doc'])
 df_train['price_doc_log'].describe()
 ```
 
-从摘要可以看到，full_sq 的均值约为 54.2，标准差约 38.0，最小值是 0，最大值达到 5326，说明面积跨度极大，可能存在录入错误或特殊物业。life_sq 只有 24088 个非空值，缺少了六千多条记录；floor 有 30304 个非空值，max_floor 只有 20899 个非空值，说明楼层信息缺失比较严重。build_year 的最大值异常达到 20052007，明显是数据错误，这类值需要在清洗阶段处理。price_doc 本身右偏严重，取对数后分布更接近正态，因此我们新增 price_doc_log 作为建模目标。我们还计算了 price_doc 与各个特征的皮尔逊相关系数，发现 build_count_before_1920、leisure_count_1000、cafe_sum_2000_min_price_avg 等与价格有弱正相关，而大量特征与目标几乎不相关，说明特征筛选和特征工程对提升模型很重要。
+从摘要可以看到，full_sq 的均值约为 54.2，标准差约 38.0，最小值是 0，最大值达到 5326，说明面积跨度极大，可能存在录入错误或特殊物业。life_sq 只有 24088 个非空值，缺少了六千多条记录；floor 有 30304 个非空值，max_floor 只有 20899 个非空值，说明楼层信息缺失比较严重。build_year 的最大值异常达到 20052007，明显是数据错误，这类值需要在清洗阶段处理。price_doc 本身右偏严重，取对数后分布更接近正态，因此我们新增 price_doc_log 作为建模目标。
+
+我们还对缺失值做了整体统计，看看哪些列缺得最严重。
+
+```python
+# 按缺失数量从多到少排序，找出最需要处理的列
+missing = df_train.isna().sum().sort_values(ascending=False)
+print(missing.head(20))
+```
+
+打印结果显示，咖啡馆价格类特征缺失较多，比如 cafe_sum_2000_max_price_avg 缺了 1725 条，floor 缺了 167 条，metro_min_walk、metro_km_walk 等地铁距离特征表层看只缺 25 条，说明缺失分布并不均匀。有的列缺得少可以放心丢弃，有的列缺得多则必须认真填补，否则模型会损失大量样本。我们还计算了 price_doc 与各个特征的皮尔逊相关系数，发现 build_count_before_1920、leisure_count_1000、cafe_sum_2000_min_price_avg 等与价格有弱正相关，而大量特征与目标几乎不相关，说明特征筛选和特征工程对提升模型很重要。
 
 ### 2.2 数据清洗
 
@@ -128,7 +138,7 @@ model = xgb.train(xgb_params, dmatrix_train, num_boost_round=1000,
                   early_stopping_rounds=20, verbose_eval=20)
 ```
 
-我们设置学习率 eta 为 0.05，让每一棵树只走一小步，整体更稳定；max_depth 为 5 控制单棵树的复杂度；colsample_bytree 为 0.7 表示每棵树随机使用七成特征，降低过拟合风险；objective 使用 reg:squarederror 做回归，eval_metric 设为 rmse 方便观察对数目标上的误差。early_stopping_rounds=20 的作用是：如果验证集误差连续 20 轮没有下降，就提前停止训练，既省时间又避免过拟合。训练日志显示验证 rmse 从 14.37 快速下降，最终稳定在 0.466 左右。随后我们在验证集上计算 RMSLE，得到约 0.4657，相比决策树有明显提升。我们还用 SHAP 分析了特征重要性，发现 full_sq、life_sq、area_m 等面积相关特征，以及 metro_min_walk、kremlin_km 等位置距离特征贡献较大。调参时我们重点保持了较小的学习率和适中的树深，在收敛速度和泛化能力之间取得平衡。
+我们设置学习率 eta 为 0.05，让每一棵树只走一小步，整体更稳定；max_depth 为 5 控制单棵树的复杂度；colsample_bytree 为 0.7 表示每棵树随机使用七成特征，降低过拟合风险；objective 使用 reg:squarederror 做回归，eval_metric 设为 rmse 方便观察对数目标上的误差。early_stopping_rounds=20 的作用是：如果验证集误差连续 20 轮没有下降，就提前停止训练，既省时间又避免过拟合。训练日志显示验证 rmse 从 14.37 快速下降，前 20 轮就降到 5 左右，之后慢慢收敛到 0.466 左右。这样的学习曲线说明模型起初学习很快，后期则慢慢微调。随后我们在验证集上计算 RMSLE，得到约 0.4657，相比决策树有明显提升。我们还用 SHAP 分析了特征重要性，发现 full_sq、life_sq、area_m 等面积相关特征，以及 metro_min_walk、kremlin_km 等位置距离特征贡献较大。调参时我们重点保持了较小的学习率和适中的树深，在收敛速度和泛化能力之间取得平衡。
 
 ### 2.4 模型测试与指标报告
 
@@ -150,4 +160,4 @@ submission.to_csv('submission.csv', index=False)
 
 ## 三、总结
 
-本文中我们完成了 Sberbank 俄罗斯房地产市场预测的完整流程。我们首先通过 EDA 明确了数据的规模和分布，训练集 30471 行 292 列，目标列 price_doc 右偏严重，面积特征跨度大，楼层和居住面积存在较多缺失值。其次我们进行了数据清洗，对缺失值分别用众数和均值填补，拆分时间戳并对类别特征做 Ordinal 编码，同时对数值特征做 log1p 变换并把目标列取对数。接着我们用决策树做基线，验证集 RMSLE 约 0.496，然后使用 XGBoost 并通过早停调参，验证集 RMSLE 降至约 0.4657。最后我们在全量数据上重新训练并生成提交文件，完成模型测试与指标报告。整个方案体现了先清洗、再特征、后模型的基础思路，也说明了对数变换与早停策略在房价回归任务中的实际价值，适合作为入门者的参考。
+本文中我们完成了 Sberbank 俄罗斯房地产市场预测的完整流程。我们首先通过 EDA 明确了数据的规模和分布，训练集 30471 行 292 列，目标列 price_doc 右偏严重，面积特征跨度大，楼层和居住面积存在较多缺失值。其次我们进行了数据清洗，对缺失值分别用众数和均值填补，拆分时间戳并对类别特征做 Ordinal 编码，同时对数值特征做 log1p 变换并把目标列取对数。为了降低噪声，我们还参考了特征与目标的相关性分析，舍弃了尾部大量弱相关特征，让模型更专注于真正有信息量的变量。接着我们用决策树做基线，验证集 RMSLE 约 0.496，然后使用 XGBoost 并通过早停调参，验证集 RMSLE 降至约 0.4657。模型在特征重要性上也验证了常识，面积、楼层、到中心区的距离等都是决定房价的关键。最后我们在全量数据上重新训练并生成提交文件，完成模型测试与指标报告。整个方案体现了先清洗、再特征、后模型的基础思路，也说明了对数变换与早停策略在房价回归任务中的实际价值，适合作为入门者的参考。以后的改进方向可以加入更多交互特征、宏观数据融合，以及更精细的超参数搜索，但本篇已经展示了从理解问题到提交结果的完整闭环。

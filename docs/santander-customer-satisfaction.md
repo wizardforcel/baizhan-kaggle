@@ -1,286 +1,218 @@
-# Santander 客户满意度预测（Customer Satisfaction）
+# Santander 客户满意度预测（Santander Customer Satisfaction）
 
 ## 一、比赛简介
 
 ### 1.1 比赛背景
 
-Santander 是一家总部位于西班牙的大型银行。银行每天都会和成千上万的客户打交道，客户对服务是否满意，直接决定了他会不会继续使用这家银行的产品。如果能在客户真正流失之前，提前发现那些「可能不满意」的人，银行就可以主动联系、补偿或者改进服务，把客户留下来。
+银行最怕的不是客户已经离开，而是客户已经不满意、却还没有公开抱怨。Santander 希望通过历史业务数据尽早找出“不开心的客户”，这样客服团队就可以在客户流失之前主动联系。这个比赛把真实客户信息做了匿名化处理，参赛者只能看到 `var3`、`var15`、`saldo_var5`、`imp_op_var39_comer_ult1` 这类没有业务含义的字段，不能直接知道某一列代表余额、消费还是产品状态。
 
-这个比赛给出的就是一批匿名化之后的客户数据。所谓匿名化，是指银行把原本有业务含义的字段名替换成了 `var3`、`var15`、`saldo_var30` 这样的代号，只保留数值本身。这样既能让参赛者建模，又不会泄露客户隐私。代价是我们无法直接知道每一列到底代表年龄、余额还是交易次数，只能通过数据分布去猜。这也是这场比赛最大的难点：**特征没有业务解释，必须靠统计规律去找信号**。
-
-数据还有一个明显特点：绝大多数特征在大多数客户身上都是 0。可以把它想象成一张很大的表格，里面记录着客户使用各种银行产品的情况，但每个客户只用了其中很少几种，所以表格非常稀疏。再加上满意和不满意的人数差距很大，这让模型很容易「偷懒」——只要全部预测成满意，准确率也能很高，但这样就完全抓不到真正不满意的客户。
+数据是典型的表格二分类。训练集包含 76020 行、371 列，测试集包含 75818 行、370 列；训练集比测试集多出来的那一列就是目标 `TARGET`。特征全部是整数或浮点数，没有字符串列。很多特征是 0/1 指示变量，也有金额、次数、余额等连续变量。匿名特征多、变量之间可能重复、目标类别不平衡，是这个比赛的主要难点。
 
 ### 1.2 比赛目标
 
-训练集包含约 7.6 万行、371 列：第一列是客户编号 `ID`，中间 369 列是匿名特征，最后一列是标签 `TARGET`。`TARGET` 只有两个取值：
-
-- `0` 表示客户对银行满意；
-- `1` 表示客户不满意。
-
-测试集包含约 7.58 万行、370 列，比训练集少了 `TARGET` 这一列。我们要对每个测试客户输出一个 0 到 1 之间的概率，表示他「不满意」的可能性。提交文件只有两列：`ID` 和 `TARGET`。
-
-这里要注意，虽然 `TARGET` 是 0/1 标签，但比赛要的不是硬分类，而是**概率**。也就是说，输出 0.8 比输出 1 更有信息量，因为它表达了「有八成把握不满意」。
+我们的输入是客户的匿名特征和一个不参与建模的 `ID`。训练集里有 `TARGET`：0 表示满意，1 表示不满意。测试集没有 `TARGET`。我们要为测试集每位客户输出他“不满意”的概率，提交文件包含 `ID` 和 `TARGET` 两列。这里提交的是概率而不是硬分类标签，模型应该尽量把真正不满意的客户排在前面。
 
 ### 1.3 评价标准
 
-比赛使用 **ROC 曲线下面积（AUC，Area Under the ROC Curve）** 作为评价指标。用大白话解释：我们把所有测试客户按预测概率从高到低排队，AUC 衡量的是「随机挑一个真正不满意的客户和一个真正满意的客户，模型给前者打的分数更高的概率」。
-
-- AUC 等于 0.5，说明模型和抛硬币差不多；
-- AUC 等于 1.0，说明模型把两类人完美分开了；
-- 分数越高越好。
-
-AUC 的好处是它只看排序，不看概率的绝对大小，所以即使模型整体把概率估得偏高或偏低，只要顺序对，分数仍然好。这对正负样本极不均衡的数据特别合适。
+比赛用 **ROC AUC（ROC 曲线下面积）**评价。AUC 可以理解为：随机抽一个不满意客户和一个满意客户，模型把不满意客户预测得更高的概率。随机排序的 AUC 约为 0.5，完美排序为 1，分数越高越好。它不要求我们先选一个 0.5 的分类阈值，因此比准确率更适合类别不平衡场景：即使不满意客户很少，只要概率排序正确，AUC 仍然会奖励模型。
 
 ---
 
 ## 二、解题过程
 
-我们的整体思路是：先通过 EDA 弄清楚数据有多稀疏、标签有多不均衡，再把明显没有信息量的列删掉、把特殊编码处理掉，最后用树模型（XGBoost 和 LightGBM）来抓非线性关系。下面按四个步骤展开。
+我们的主线是：先用 EDA 找出类别不平衡、全零特征和异常编码，再删除没有信息的列、修正明显的伪缺失值；随后用带 AUC 目标的梯度提升树训练，并通过分层验证、过采样或欠采样比较不同方案，最后输出测试集概率。
 
 ### 2.1 数据探索（EDA）
 
-我们首先把训练集和测试集读进来，确认数据规模和列名：
+我们首先读入训练集和测试集，确认行列数、数据类型和目标分布。`ID` 只是客户编号，不能让模型把它当成有业务意义的变量。
 
 ```python
-import pandas as pd
 import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
 
-# 读取训练集和测试集
-train = pd.read_csv("../input/santander-customer-satisfaction/train.csv")
-test = pd.read_csv("../input/santander-customer-satisfaction/test.csv")
+# 读取训练集和测试集；训练集多一列 TARGET
+train_df = pd.read_csv("../input/santander-customer-satisfaction/train.csv")
+test_df = pd.read_csv("../input/santander-customer-satisfaction/test.csv")
 
-# 看看数据有多大：训练集比测试集多一列 TARGET
-print(train.shape)   # (76020, 371)
-print(test.shape)    # (75818, 370)
+print("Train Data Shape:", train_df.shape)
+print("Test Data Shape:", test_df.shape)
+print(train_df.dtypes.value_counts())
 
-# 前几列长这样：ID、var3、var15，以及大量 imp_/num_/saldo_ 开头的列
-print(train.columns[:10].tolist())
+# 目标分布：先看是否严重偏斜，再决定是否重采样
+print(train_df["TARGET"].value_counts())
+sns.countplot(x="TARGET", data=train_df)
+plt.title("TARGET distribution")
+plt.show()
 ```
 
-打印结果告诉我们，训练集有 76020 行、371 列，测试集有 75818 行、370 列。列名里能看到 `imp_`（可能是进口/收入类金额）、`num_`（次数）、`saldo_`（余额）等前缀，但具体业务含义材料里没有说明，我们只能把它们当成普通数值特征。
+材料显示训练集是 `(76020, 371)`，测试集是 `(75818, 370)`。特征类型是 259 个整数列和 111 个浮点列，没有字符串，所以我们不需要文本编码或类别嵌入。目标计数图显示类别明显不平衡：0 类远多于 1 类。如果只看准确率，一个永远预测 0 的模型也可能看起来很高，但它完全找不出不满意客户，所以我们后面坚持看 AUC、召回率和混淆矩阵。
 
-接着我们看标签分布，这是整场比赛最关键的背景信息：
+我们接着统计每个特征中 0 的数量。很多匿名变量本质上是“是否拥有某项业务”的指示，0 占比过高时几乎没有区分度。
 
 ```python
-# 统计 TARGET 的取值数量
-print(train["TARGET"].value_counts())
-# 0    73012
-# 1     3008
+# 统计每一列等于 0 的行数
+zero_counts = (train_df.drop(columns="TARGET") == 0).sum()
+
+# 材料中的基线把超过 75000 个 0 的列列为待删除特征
+removed_features = zero_counts[zero_counts > 75000].index.tolist()
+print("待删除特征数量:", len(removed_features))
+print(removed_features[:10])
+
+# 看每列的不同取值数量，发现很多列只有 1 或 2 个值
+nunique = train_df.drop(columns="TARGET").nunique().sort_values()
+print(nunique.head(20))
 ```
 
-满意客户有 73012 人，不满意客户只有 3008 人，正样本大约占 4%。这就是典型的**类别不均衡**。它带来两个直接后果：第一，不能用准确率评估模型，因为全猜 0 就有 96% 的准确率；第二，训练时要让模型更关注少数类，或者至少用对不均衡不敏感的指标（AUC）来选模型。
-
-我们接着检查缺失值和特殊值：
-
-```python
-# 表面上看没有任何缺失值
-print(train.isna().sum().sum())   # 0
-
-# 但 var3 里有一个 -999999，出现 116 次，很像是「未知」的占位符
-print(train["var3"].value_counts().head())
-#  2         74165
-#  8           138
-# -999999      116
-```
-
-这说明数据里的「缺失」不是用 `NaN` 表示的，而是用 `-999999` 这样的特殊数字。如果我们直接把 `-999999` 当正常数值喂给模型，模型会误以为这个客户的 `var3` 极小，从而学到错误的关系。所以后面必须把它替换掉。
-
-我们还看了几个重要特征的分布：
-
-```python
-# var15 的分布，材料里猜测它和年龄有关
-train["var15"].hist(bins=30)
-
-# var38 最常见的取值是 117310.979016，有 14868 行
-print(train["var38"].value_counts().head())
-# 117310.979016    14868
-# 451931.220000       16
-# 463625.160000       12
-```
-
-`var15` 的直方图显示大多数客户集中在中青年区间，而且不同 `TARGET` 的分布形状不一样，说明它是有区分度的。`var38` 则非常极端：将近 1.5 万人共享同一个值 117310.979016，其他取值非常分散。这种「一个值占了很大比例」的列，树模型可以通过「是否等于这个值」切一刀，往往很有用，后面特征重要性也验证了这一点。
-
-最后我们统计有多少列几乎全是 0：
-
-```python
-# 统计每一列中 0 的个数，超过 75000 个的列几乎没有信息量
-zero_cols = [c for c in train.columns if (train[c] == 0).sum() > 75000]
-print(len(zero_cols))   # 229
-```
-
-76020 行里有 75000 个以上是 0，意味着非零样本不到 1000 个。这样的列对绝大多数客户没有区分作用，留着只会增加噪声和计算量，所以我们决定删掉它们。
+EDA 的一个明确结论是：有 229 个特征的 0 数量超过 75000。它们大部分时间都是常数，既增加内存又增加树的分裂候选，删除它们是一个有依据的简化。我们还看到许多列只有一个或两个不同值，这些列也需要结合验证分数决定是否保留，不能因为匿名就盲目删除所有二值列。
 
 ### 2.2 数据清洗
 
-基于上面的观察，我们做了三件事：删掉零值过多的列、替换 `var3` 的特殊编码、把训练集和测试集做完全一致的处理。
+我们其次删除 `ID` 和高度稀疏的特征。删除列时训练集和测试集必须同步，否则模型会遇到列不一致。材料还指出数据没有普通的空值，但 `var3` 的最小值是 `-999999`，这不是正常业务数值，而是缺失值的特殊编码。
 
 ```python
-# 找出 0 值超过 75000 个的列
-removed_features = []
-for col in train.columns:
-    if col == "TARGET":
-        continue
-    if (train[col] == 0).sum() > 75000:
-        removed_features.append(col)
+# ID 只用于提交匹配，不作为学习特征
+train_id = train_df["ID"].copy()
+test_id = test_df["ID"].copy()
 
-# 训练集和测试集必须同步删除，否则列对不上
-train.drop(columns=removed_features, inplace=True)
-test.drop(columns=removed_features, inplace=True)
+# 去掉 ID 和目标列，得到纯特征表
+X = train_df.drop(columns=["ID", "TARGET"]).copy()
+X_test = test_df.drop(columns=["ID"]).copy()
+y = train_df["TARGET"].copy()
 
-# var3 里的 -999999 是「未知」，材料里把它替换成 0
-train["var3"].replace(-999999, 0, inplace=True)
-test["var3"].replace(-999999, 0, inplace=True)
+# 训练、测试使用同一份待删除列清单，避免列错位
+X = X.drop(columns=removed_features)
+X_test = X_test.drop(columns=removed_features)
 
-print(train.shape)   # 列数比原来的 371 少了很多
+# var3 的 -999999 表示异常缺失，把它还原成 0
+# 0 是该变量正常分布中更合理的下界
+X["var3"] = X["var3"].replace(-999999, 0)
+X_test["var3"] = X_test["var3"].replace(-999999, 0)
 ```
 
-这里有一个容易踩的坑：删列必须**用同一份列名列表**同时作用于训练集和测试集。如果只在训练集上删，测试集就会多出很多列，模型预测时会直接报错。我们先把要删的列收集到 `removed_features`，再分别对两个表执行 `drop`，这样能保证列顺序和列数量完全一致。
+`var3` 的处理不能照搬普通的“删除异常行”：如果我们删除这些客户，就会损失训练样本；把它替换成 0 能保留样本，同时让树模型看到一个统一的缺失状态。对于其它异常值，材料中列出了按列设置阈值的做法，例如金额列超过某个上限、次数列超过某个上限时用该列均值替代。我们只在明确知道阈值来自材料的列上这样做，避免为了让分布好看而随意截断真实的高消费客户。
 
-除了 `var3`，材料里还对一些金额类特征做了「把极端值替换成均值」的处理。比如 `saldo_var30` 超过 250 万的值被视为离群点。树模型对离群点不像线性模型那么敏感，但在金额跨度极大的情况下，极端值仍然会抢走分裂点，所以适度截断是有帮助的。我们保留了这个思路，但没有对每一列都做，而是只处理那些量级明显异常的金额列。
-
-清洗完之后，数据里就没有 `NaN`，也没有 `-999999` 这种「假缺失」了。我们再把 `ID` 和 `TARGET` 分开：
+下面把“按列替换极端值”的逻辑写成可复用函数。函数只修改明确列出的规则，且不碰目标列。
 
 ```python
-# y 是标签，X 是特征；ID 只是编号，不能当特征
-y = train["TARGET"]
-X = train.drop(columns=["ID", "TARGET"])
+def replace_extreme_values(df, rules):
+    """按照材料中给出的列名和阈值，用训练集列均值修正极端值"""
+    df = df.copy()
+    for rule in rules:
+        col = rule["col"]
+        value = rule["value"]
+        if col not in df.columns:
+            continue
+        # 用当前训练表的均值作为保守替代，避免新增极端点
+        mean_value = df[col].mean()
+        mask = df[col] > value
+        df.loc[mask, col] = mean_value
+    return df
 
-# 测试集也去掉 ID，保留纯特征
-X_test = test.drop(columns=["ID"])
+# 真实项目里 rules 来自 EDA 后的阈值清单；
+# 测试集也要使用同一套列名和阈值
+rules = [
+    {"col": "imp_ent_var16_ult1", "value": 7000},
+    {"col": "imp_op_var39_comer_ult1", "value": 7000},
+    {"col": "num_var5", "value": 8},
+    {"col": "saldo_var5", "value": 500000},
+]
+X = replace_extreme_values(X, rules)
+X_test = replace_extreme_values(X_test, rules)
 ```
+
+重采样也属于数据清洗的一部分。由于正类很少，我们准备三种训练数据：原始数据、随机欠采样（减少多数类 0）、随机过采样（复制少数类 1）。注意重采样只能发生在训练折里，不能先对全数据复制再切分，否则同一条样本可能同时出现在训练和验证中，AUC 会虚高。
 
 ### 2.3 模型训练与超参数调优
 
-我们首先建立一个本地的验证集。因为正样本很少，普通随机切分可能让验证集里只剩几十个正样本，AUC 会非常不稳定，所以我们用**分层抽样**（`stratify=y`），保证训练集和验证集的正负比例一致：
+我们接着先建立一个逻辑回归或树模型基线，再使用 LightGBM、XGBoost 比较。梯度提升树很适合这类匿名表格：它能自动学习非线性关系和特征交互，不要求我们手动把所有变量缩放到同一范围。训练时把评价指标设为 `auc`，并让验证集早停。
 
 ```python
 from sklearn.model_selection import train_test_split
+from sklearn.metrics import roc_auc_score
+import lightgbm as lgb
 
-# 80% 训练、20% 验证；stratify 保证两边正样本比例一样
-X_train, X_val, y_train, y_val = train_test_split(
-    X, y, test_size=0.2, stratify=y, random_state=86
+# 分层切分，保证验证集也保留少数的 TARGET=1
+X_train, X_valid, y_train, y_valid = train_test_split(
+    X, y, test_size=0.2, stratify=y, random_state=42
 )
 
-print(X_train.shape, X_val.shape)
-print(y_train.mean(), y_val.mean())   # 两边正样本比例应该接近
+# LightGBM 直接以二分类 AUC 为目标，不把概率硬切成 0/1
+model = lgb.LGBMClassifier(
+    objective="binary",
+    metric="auc",
+    random_state=42,
+)
+model.fit(
+    X_train, y_train,
+    eval_set=[(X_valid, y_valid)],
+    callbacks=[lgb.early_stopping(50, verbose=False)],
+)
+
+valid_proba = model.predict_proba(X_valid)[:, 1]
+print("Validation ROC_AUC:", roc_auc_score(y_valid, valid_proba))
 ```
 
-然后我们选了四个模型做对比：逻辑回归、随机森林、XGBoost、LightGBM。逻辑回归作为线性基线，随机森林作为 Bagging 代表，两个 Boosting 模型则是这类表格数据比赛的主力。材料里的对比结果如下：
+材料中的一个 LightGBM/逻辑回归建模 notebook 在本地验证集打印了 `ROC_AUC: 0.7897`，这给我们一个可复现的量级参考。这个数字不是最终排行榜分数，也不是所有方案都能得到的保证；它只说明在正确处理目标不平衡、使用概率输出后，模型明显优于随机排序。
+
+为了调参，我们围绕 `num_leaves`、`learning_rate`、`n_estimators`、`max_depth`、行采样和列采样做网格或随机搜索，所有试验都用同一份分层切分和 AUC 比较。调参时我们不追求训练集 AUC 越高越好，因为树越多、叶子越复杂，训练分数很容易接近 1，却可能在验证集下降。
 
 ```python
-from sklearn.linear_model import LogisticRegression
-from sklearn.ensemble import RandomForestClassifier
-from xgboost import XGBClassifier
-from lightgbm import LGBMClassifier
-from sklearn.metrics import roc_auc_score
+from sklearn.model_selection import GridSearchCV
 
-# 四个模型都用同一个随机种子，保证对比公平
-models = {
-    "LogisticRegression": LogisticRegression(random_state=86),
-    "RandomForest": RandomForestClassifier(random_state=86),
-    "XGBoost": XGBClassifier(eval_metric="auc", random_state=86),
-    "LightGBM": LGBMClassifier(random_state=86),
+# 搜索空间保持小一些，先找方向，再做更细搜索
+param_grid = {
+    "num_leaves": [15, 31],
+    "learning_rate": [0.01, 0.05],
+    "max_depth": [-1, 5],
 }
 
-for name, model in models.items():
-    model.fit(X_train, y_train)
-    # 注意：要取正类的概率，也就是 predict_proba 的第二列
-    pred = model.predict_proba(X_val)[:, 1]
-    print(name, roc_auc_score(y_val, pred))
-```
-
-我们得到的验证集 AUC 大致是：
-
-| 模型 | 验证集 AUC |
-| --- | --- |
-| 逻辑回归 | 0.652 |
-| 随机森林 | 0.748 |
-| XGBoost | 0.825 |
-| LightGBM | 0.831 |
-
-逻辑回归只有 0.652，说明特征和标签之间大量是非线性关系，直线分不开。随机森林提升到 0.748，说明树结构确实能抓到一些交互。两个 Boosting 模型直接冲到 0.82 以上，其中 LightGBM 略好，而且训练时间比 XGBoost 短很多（材料里 XGBoost 大约 34 秒，LightGBM 不到 2 秒）。
-
-在超参数方面，我们没有做大规模网格搜索，而是采用了这类比赛里比较稳的默认配置，再手工调整几个关键参数：
-
-```python
-# LightGBM 的关键参数：
-# num_leaves 控制每棵树的最大叶子数，越大越容易过拟合
-# learning_rate 小一点、树多一点，通常泛化更好
-# min_child_samples 防止叶子节点样本太少
-lgbm = LGBMClassifier(
-    n_estimators=1000,
-    learning_rate=0.02,
-    num_leaves=31,
-    min_child_samples=40,
-    subsample=0.8,
-    colsample_bytree=0.8,
-    reg_alpha=0.1,
-    reg_lambda=1.0,
-    random_state=86,
+search = GridSearchCV(
+    lgb.LGBMClassifier(objective="binary", metric="auc", random_state=42),
+    param_grid=param_grid,
+    scoring="roc_auc",       # 类别不平衡时用 AUC，而不是 accuracy
+    cv=3,
+    n_jobs=-1,
 )
+search.fit(X_train, y_train)
+print("Best params:", search.best_params_)
+print("Best CV AUC:", search.best_score_)
 ```
 
-这里解释一下几个参数为什么这么设。`num_leaves=31` 是 LightGBM 的默认值，对于 7 万多行数据不算大；`learning_rate=0.02` 配合 `n_estimators=1000` 是「小步慢跑」，比用 0.1 的学习率、100 棵树更不容易过拟合；`min_child_samples=40` 是为了防止模型在只有几个样本的叶子上记住噪声。正样本只有 3008 个，如果叶子太细，模型很容易把每个正样本单独记住，验证集 AUC 反而会掉。
-
-树模型不需要标准化，也不怕特征量纲不同，所以我们可以把原始数值直接喂进去。这是它相比逻辑回归的一个实际优势。
+对于重采样，我们分别训练原始、欠采样和过采样版本，然后只保留验证 AUC 更高的方案。SMOTE 也可以生成少数类的合成样本，但匿名特征中有大量二值变量，合成以后可能产生不自然的小数，所以材料同时讨论了随机过采样、随机欠采样和 Tomek Links；我们以验证结果为准，不预设哪一种一定最好。
 
 ### 2.4 模型测试与指标报告
 
-模型训练好之后，我们在验证集上做了更细的检查。除了 AUC，我们还看了特征重要性，确认模型学到的东西是否符合前面的 EDA：
+最后我们用选择出的模型在全部清洗后的训练集上重新拟合，再预测测试集概率。因为 AUC 只看排序，所以不能对概率做四舍五入，也不能只输出 0 和 1。
 
 ```python
-# 用训练好的 LightGBM 看最重要的 10 个特征
-importance = pd.DataFrame({
-    "feature": X.columns,
-    "importance": lgbm.feature_importances_,
-}).sort_values("importance", ascending=False)
+# 选出搜索得到的最佳模型，并用全部训练数据重新训练
+best_model = search.best_estimator_
+best_model.fit(X, y)
 
-print(importance.head(10))
-# var38、var15、saldo_var30、saldo_medio_var5_hace3 等排在前面
-```
+# 第 1 列是 TARGET=0 的概率，第 2 列才是“不满意”的概率
+test_proba = best_model.predict_proba(X_test)[:, 1]
 
-结果和 EDA 的观察一致：`var38` 和 `var15` 是最重要的两个特征。`var38` 那个「近 1.5 万人共享同一个值」的现象，让树模型可以很轻松地切出一大块人群；`var15` 则像年龄一样，把客户分成不同年龄段。紧随其后的是 `saldo_var30`、`saldo_medio_var5_hace3`、`num_var45_ult3` 等余额和交易类特征，说明客户的资产状况确实和满意度有关。
-
-我们也尝试了特征选择：把重要性为 0 的特征删掉，再重新训练。材料里提到，369 列里有大量列几乎不参与分裂，删掉一部分之后 AUC 基本不变，但训练更快、模型更简单。这说明这场比赛的信息主要集中在大约几十个特征上，剩下的很多列是「陪跑」的。
-
-最后我们生成提交文件：
-
-```python
-# 用全量训练数据重新训练，多喂数据通常更稳
-final_model = LGBMClassifier(
-    n_estimators=1000,
-    learning_rate=0.02,
-    num_leaves=31,
-    min_child_samples=40,
-    subsample=0.8,
-    colsample_bytree=0.8,
-    random_state=86,
-)
-final_model.fit(X, y)
-
-# 对测试集预测「不满意」的概率
-test_pred = final_model.predict_proba(X_test)[:, 1]
-
-# 按比赛格式输出：ID + TARGET
 submission = pd.DataFrame({
-    "ID": test["ID"],
-    "TARGET": test_pred,
+    "ID": test_id,
+    "TARGET": test_proba,
 })
 submission.to_csv("submission.csv", index=False)
 
-# 检查行数和取值范围，避免格式错误
-print(submission.shape)
-print(submission["TARGET"].describe())
+# 提交前做三项格式检查
+print(submission.head())
+print("行数是否一致：", len(submission) == len(test_df))
+print("是否有空值：", submission.isna().any().any())
+print("概率范围：", submission["TARGET"].min(), submission["TARGET"].max())
 ```
 
-提交前我们特意检查了三件事：行数是否等于 75818、`ID` 是否和测试集一一对应、概率是否都在 0 到 1 之间。这些检查看起来琐碎，但比赛中因为提交格式错误拿不到分数的情况并不少见。
-
-最终，我们最好的单模型在验证集上的 AUC 约为 **0.83**，和材料里其他参赛者的结果（XGBoost 0.825、LightGBM 0.831）处于同一水平。这个分数说明模型已经能比较有效地区分满意和不满意客户，但距离「完美」还有很大空间——匿名特征限制了我们对业务的理解，很多信号只能靠模型自己去挖。
+指标报告包含三部分。第一是本地分层验证的 ROC AUC，材料里明确记录过 0.7897；第二是不同重采样方法的验证 AUC，用来选择最终训练策略；第三是提交文件的概率范围、行数和空值检查。我们不把训练集 AUC 当成绩，也不把分类准确率当比赛指标。若需要观察某个阈值下的业务效果，可以额外打印 precision、recall 和混淆矩阵，但排行榜最终仍以概率排序的 AUC 为准。
 
 ---
 
 ## 三、总结
 
-本文中我们完成了 Santander 客户满意度预测的完整流程。我们首先用 EDA 摸清了数据：76020 条训练样本、369 个匿名特征、正样本只占约 4%，而且大量列有 75% 以上的零值。其次我们做了针对性的清洗：删掉零值过多的 229 列、把 `var3` 里的 `-999999` 替换成正常值，并保证训练集和测试集同步处理。接着我们用分层抽样切分验证集，对比了逻辑回归、随机森林、XGBoost 和 LightGBM 四个模型，发现 Boosting 模型的 AUC 明显领先。然后我们调整了 LightGBM 的叶子数、学习率和最小叶样本数，并检查了特征重要性，确认 `var38`、`var15` 和几个余额类特征最重要。最后我们用全量数据重新训练，输出每个测试客户的「不满意概率」，验证集 AUC 约为 0.83。
+本文中我们完成了 Santander 客户满意度预测的完整流程。我们首先通过 EDA 确认训练集有 76020 行、测试集有 75818 行，特征是 259 个整数列和 111 个浮点列，目标类别明显不平衡。其次我们删除 `ID` 和 0 数量超过 75000 的无信息列，把 `var3` 中的 `-999999` 改成 0，并根据材料里的阈值规则处理少量极端值。接着我们用分层切分、LightGBM 和 XGBoost 方向的梯度提升树训练概率模型，用 AUC 做早停和网格搜索评分，同时比较原始数据、欠采样和过采样。最后我们在验证集上用 ROC AUC 报告结果，材料中的一个方案达到 0.7897 的本地验证 AUC，再用全量数据训练并生成 `ID,TARGET` 提交文件。
 
-这个比赛给我们最大的启发是：**面对匿名、稀疏、不均衡的数据，树模型和 AUC 是一对好搭档**。树模型不需要我们解释每一列的含义，也能自动处理非线性和特征交互；AUC 则不会被「多数类」带偏，能真实反映模型有没有把少数类排到前面。清洗阶段删掉大量零值列，也让模型从「什么都学一点」变成了「集中学好几十个关键特征」。
+这个比赛给我们的启发是：匿名数据并不等于没有结构。列名虽然看不懂，但缺失编码、零值比例、分布异常和目标不平衡仍然可以通过统计分析发现。另一个重要教训是：业务上“找出不满意客户”不能只看准确率，因为少数类会被多数类淹没；使用概率和 AUC，才能真正评价模型有没有把高风险客户排在前面。

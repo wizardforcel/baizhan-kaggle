@@ -1,157 +1,159 @@
-# Screen Habits and Label Construction
+# 屏幕使用习惯与标签构建研究（Screen Habits and Label Construction）
 
 ## 一、比赛简介
 
 ### 1.1 比赛背景
-Screen Habits and Label Construction 是 Kaggle Playground S6E8 的一个独立研究型题目，源头数据来自 algozee 的 smartphone-addiction-prediction-data。比赛的出发点不是预测真正的成瘾诊断，而是一次目标构造审计。原始合成标签 addicted_label 是从问卷字段里按规则生成的，如果我们直接用同样的问卷字段去预测标签，模型很可能只是在复现构造规则，而不是发现新的现象。组织方希望参赛者写一份目标构造审计报告，并做一次迁移测试——换掉特征集合，看看性能会不会掉。合成标签不是临床诊断，不能当成成瘾的医学判断。
+本场比赛来自 Kaggle Playground S6E8 的合成数据，上游数据是 `algozee/smartphone-addiction-prediction-data`。它记录了一份关于手机使用习惯的调查问卷，包含学习、工作、社交、游戏等场景下的每日使用时长，以及压力水平、学业或工作受影响程度等自评字段。比赛要求根据这些调查字段预测一个名为 `addicted_label` 的二分类标签。
 
-我们拿到的数据来自 Kaggle 比赛 screen-habits-and-label-construction，数据文件是 screen-habits-and-label-construction-data。比赛明确说标签是合成的，且提供了一个固定的基线实验规范，禁止在排行榜上调参。
+这场比赛特别的地方在于：目标标签并不是临床诊断，也不是独立测量的行为结果，而是由同一份问卷里的若干字段按照某种规则构造出来的合成标签。因此，模型如果表现很好，可能反映的是它学会了这个标签构造规则，而不是发现了新的行为规律。材料把这个现象称为“标签构建问题”，并要求我们做一次目标构建审计和一次更换特征集的迁移测试。
 
 ### 1.2 比赛目标
-训练集里每行是一个用户的问卷记录，含有若干屏幕使用习惯字段和一个二分类标签 addicted_label。测试集只有特征列，没有标签。我们需要输出每个测试样本的 addicted_label 概率或类别。题目规定不能使用额外的训练文件，采样要做但保留审计信息。我们要做的不仅是提交预测，还要解释标签是否被特征直接定义。
+输入是调查问卷字段，包括各类每日使用时长、`stress_level`、`academic_work_impact` 等；输出是 `addicted_label` 的预测值（0 或 1）。数据包含 `id` 列和标签列，训练集与测试集拥有相同的特征列。材料中的基线把训练集随机抽样上限设为 120000 行，并固定保留 20% 作为 holdout。
 
 ### 1.3 评价标准
-比赛家族是 binary。基线规范里使用 AUC、balanced_accuracy、MCC、log_loss 等指标来评估。主要关注 AUC，即 ROC 曲线下面积，越高越好。规范中还要求做常数基线对比，以及移除 stress_level 和 academic_work_impact 后的可用性消融。提交文件必须和 sample_submission 结构一致，概率值在 0 到 1 之间，且不能有缺失。
+材料中的模型在一组常用二分类指标上做评估，包括准确率（accuracy）、平衡准确率（balanced_accuracy）、对数损失（log_loss）、ROC-AUC 和 MCC（Matthews 相关系数）。对于不平衡数据，单看准确率容易被多数类主导，所以平衡准确率、AUC 和 MCC 更能反映真实区分能力。材料没有给出一个唯一的官方排行榜指标，因此我们在复现时把这些指标一并报告，并以 AUC 和 MCC 作为主要比较依据。
 
 ## 二、解题过程
 
-整场比赛的思路可以概括成一句话：按规范做一个固定设置的 CatBoost 基线，记录采样、划分、消融和验证分数，用来审计标签是否被特征定义。我们按 EDA、数据清洗、模型训练与超参数调优、模型测试与指标报告四步来走。
-
 ### 2.1 数据探索（EDA）
-我们首先读取样本提交文件确定列名和 ID 列，然后用分块阅读和种子化的水箱采样限制内存，只保留最多 12 万行均匀采样。采样过程中同时统计缺失行数，以便后续审计。
+我们首先按块读取训练集，统计总行数并做有上限的均匀抽样。这样做既控制了内存，又保留了随机性。随后我们统计每个字段的缺失数量和标签分布。
 
 ```python
-# 读取样本提交，确定 ID 列和目标列
-schema = pd.read_csv(DATA/'sample_submission.csv', nrows=3).columns.tolist()
-id_col = schema[0]
-assert schema[1:] == targets
+import pandas as pd, numpy as np
 
-# 水箱采样，限制内存同时保持均匀性
 MAX_ROWS = 120000
-reservoir = None; rows_seen = 0
-rng = np.random.default_rng(SEED)
-for chunk in pd.read_csv(DATA/'train.csv', chunksize=100000):
+rng = np.random.default_rng(20261026)
+reservoir = None
+missing = None
+rows_seen = 0
+
+# 分块读取，避免一次性把大文件全部装进内存
+for chunk in pd.read_csv(DATA/"train.csv", chunksize=100000):
     rows_seen += len(chunk)
-    chunk['_sampling_priority'] = rng.random(len(chunk))
+    m = chunk.isna().sum()
+    missing = m if missing is None else missing.add(m, fill_value=0)
+    # 给每行一个随机优先级，只保留优先级最小的若干行
+    chunk["_priority"] = rng.random(len(chunk))
     reservoir = chunk if reservoir is None else pd.concat([reservoir, chunk])
-    reservoir = reservoir.nsmallest(MAX_ROWS, '_sampling_priority')
-train = reservoir.drop(columns='_sampling_priority').reset_index(drop=True)
+    reservoir = reservoir.nsmallest(MAX_ROWS, "_priority")
+
+train = reservoir.drop(columns="_priority").reset_index(drop=True)
 ```
 
-采样结束后我们检查 ID 唯一性和标签无缺失，并把缺失统计导出为 missingness.csv。feature_columns 是除 ID 和目标外的所有列。我们发现源文件行数很大，采样后约 12 万行用于训练，这是规范规定的内存限制，不是数据量不足。
-
-接着我们统计标签分布并做 20% 的分层划分，保证验证集的正负比例与整体一致。
+抽样后我们检查 `id` 唯一、标签没有缺失，并统计正负样本比例。材料还要求把缺失情况单独保存为 `missingness.csv`，方便后续审计。标签分布显示这是一个不平衡的二分类任务，因此后面不能只看准确率。
 
 ```python
-# 确定类别并编码
-classes = sorted(train[targets[0]].unique().tolist())
-mapping = {v:i for i,v in enumerate(classes)}
-y = train[targets[0]].map(mapping).to_numpy()
+# 标签不能有缺失，否则说明数据契约被破坏
+assert not train["addicted_label"].isna().any()
+print(train["addicted_label"].value_counts(normalize=True))
 
-# 分层划分，保证类别比例稳定
-indices = np.arange(len(train))
-fit_idx, val_idx = train_test_split(indices, test_size=.2,
-                                    random_state=SEED, stratify=y)
+# 保存每个字段的缺失行数，作为数据质量证据
+pd.DataFrame({
+    "field": missing.index,
+    "missing_rows": missing.values.astype(int)
+}).to_csv("missingness.csv", index=False)
 ```
-
-我们还做了缺失统计表格并打印审计信息，包括来源行数、采样行数、特征列表和额外文件清单。这些信息为后续审计提供了可追溯性。
 
 ### 2.2 数据清洗
-题目要求的清洗是无状态的，不能用目标统计做填充。我们对数值列做强制转换，对非数值列统一填补 __MISSING__ 标记，并把日期列拆成年、月、周几。整个过程不学习整体统计，避免泄漏。
+清洗原则是“无状态变换”：所有处理只依赖当前行，不在训练集上学习目标统计量，也不对验证集做任何拟合。对类别列我们把缺失填成固定字符串 `__MISSING__`，对数值列把无穷值替换成缺失。这样 CatBoost 可以原生处理缺失，不需要额外的全表插补。
 
 ```python
-# 无状态特征转换，不使用目标统计
 def features(frame, omit=()):
+    """把原始表转成模型输入；omit 用于消融实验"""
     x = frame[[c for c in feature_columns if c not in omit]].copy()
     for c in list(x.columns):
-        if c in CONFIG.get('date_columns', []):
-            dt = pd.to_datetime(x.pop(c), errors='coerce')
-            x[c+'_year'] = dt.dt.year
-            x[c+'_month'] = dt.dt.month
-            x[c+'_weekday'] = dt.dt.dayofweek
-        elif not pd.api.types.is_numeric_dtype(x[c]):
-            x[c] = x[c].astype('string').fillna('__MISSING__').astype(str)
+        if not pd.api.types.is_numeric_dtype(x[c]):
+            # 类别列统一成字符串，缺失单独作为一个类别
+            x[c] = x[c].astype("string").fillna("__MISSING__").astype(str)
         else:
-            x[c] = pd.to_numeric(x[c], errors='coerce').replace([np.inf,-np.inf], np.nan)
+            # 数值列只做类型清理，不做跨行统计
+            x[c] = pd.to_numeric(x[c], errors="coerce").replace([np.inf, -np.inf], np.nan)
     return x
 ```
 
-我们不对标签做任何插补，训练集中标签必须完整。特征工程保持极简，目的就是让模型性能变化可以归因于特征可用性而不是清洗技巧。对于类别型特征，CatBoost 能够自动处理，我们只是统一标记缺失。
-
-清洗完成后我们得到 X = features(train)，作为后续建模的输入。整个清洗过程可复现，因为种子固定。
+我们刻意没有做目标编码，也没有用整个训练集计算均值再填回验证集。原因是材料强调要区分“模型真正学到的信号”和“预处理泄漏”。在这个任务里，验证标签也不能用于早停或参数选择，固定参数必须在看到分数之前就确定。
 
 ### 2.3 模型训练与超参数调优
-规范要求模型参数固定，不在排行榜上调参。我们采用 CatBoostClassifier，iterations=350，depth=6，learning_rate=0.08，random_seed 固定，线程数 4。没有做早停，参数在实验开始前就确定。
+基线采用 CatBoost 分类器，参数固定为 350 轮、深度 6、学习率 0.08，使用 Logloss。我们按标签分层切出 20% 的 holdout，先在训练部分拟合，再在 holdout 上评价。材料没有在排行榜上做调参，这一点很重要：它避免了用测试集信息反向选择模型。
 
 ```python
-# 固定参数的模型拟合函数
-def model_fit(x, target):
-    cat_cols = x.select_dtypes(include=['object','string']).columns.tolist()
-    params = dict(iterations=350, depth=6, learning_rate=.08,
-                  random_seed=SEED, verbose=False, thread_count=4,
-                  allow_writing_files=False)
-    model = CatBoostClassifier(loss_function='Logloss', **params)
-    model.fit(x, target, cat_features=cat_cols)
-    return model
+from catboost import CatBoostClassifier
+from sklearn.model_selection import train_test_split
+
+X = features(train)
+y = train["addicted_label"].astype(int).to_numpy()
+
+# 固定随机种子并分层，保证验证集的正负比例与训练集一致
+idx = np.arange(len(train))
+fit_idx, val_idx = train_test_split(
+    idx, test_size=0.2, random_state=20261026, stratify=y
+)
+
+params = dict(iterations=350, depth=6, learning_rate=0.08,
+              random_seed=20261026, verbose=False, thread_count=4)
+
+model = CatBoostClassifier(loss_function="Logloss", **params)
+model.fit(X.iloc[fit_idx], y[fit_idx],
+          cat_features=X.select_dtypes(include=["object", "string"]).columns.tolist())
 ```
 
-我们还准备了预测和评分函数，评分包含 accuracy、balanced_accuracy、log_loss 和 AUC、MCC。常数基线用于提供学习基线，方便判断模型是否超过平凡预测。
+除了全特征基线，我们还做了一个预先声明的消融实验：去掉 `stress_level` 和 `academic_work_impact` 两个字段，在完全相同的 holdout 上重新训练。如果去掉这两个字段后性能大幅下降，说明模型可能依赖了构造标签的规则字段；如果变化不大，说明其他使用时长字段也携带了相关信息。这个实验是诊断，不是部署许可。
 
 ```python
-# 预测函数，统一接口
-def predict(model, x):
-    return model.predict_proba(x)
+omit = ["stress_level", "academic_work_impact"]
+X_reduced = features(train, omit=omit)
 
-# 评分函数，返回关键指标字典
-def score(truth, p):
-    labels = p.argmax(axis=1)
-    result = {'accuracy': float(accuracy_score(truth, labels)),
-              'balanced_accuracy': float(balanced_accuracy_score(truth, labels)),
-              'log_loss': float(log_loss(truth, p, labels=np.arange(len(classes))))}
-    result.update(AUC=float(roc_auc_score(truth, p[:,1])),
-                  MCC=float(matthews_corrcoef(truth, labels)))
-    return result
+alt_model = CatBoostClassifier(loss_function="Logloss", **params)
+alt_model.fit(X_reduced.iloc[fit_idx], y[fit_idx],
+              cat_features=X_reduced.select_dtypes(include=["object", "string"]).columns.tolist())
+
+alt_pred = alt_model.predict_proba(X_reduced.iloc[val_idx])[:, 1]
 ```
-
-训练时我们先用常数基线得到基准分数，然后用全特征训练模型。我们还按规范做了可用性消融，移除 stress_level 和 academic_work_impact 两个字段，重新训练并比较分数。
-
-```python
-# 常数基线用于对比
-baseline = constant_prediction(y[fit_idx], len(val_idx))
-model = model_fit(X.iloc[fit_idx], y[fit_idx])
-pred = predict(model, X.iloc[val_idx])
-results = {'constant': score(y[val_idx], baseline),
-           'boosting': score(y[val_idx], pred)}
-
-# 预先指定的消融实验
-omit = [c for c in CONFIG.get('ablation',[]) if c in feature_columns]
-if omit:
-    reduced = features(train, omit)
-    alternate = model_fit(reduced.iloc[fit_idx], y[fit_idx])
-    alt_pred = predict(alternate, reduced.iloc[val_idx])
-    results['availability_ablation'] = score(y[val_idx], alt_pred)
-```
-
-消融实验的结果被完整记录，即使性能更好我们也不自动部署，因为可用性是独立的决策。整个流程强调先声明实验，再看分数，避免数据窥探。
 
 ### 2.4 模型测试与指标报告
-验证分数写入 validation_scores.csv，混淆矩阵和验证预测也导出。接下来我们在采样后的全量数据上重新拟合固定模型，用分块推理预测测试集，保证 ID 顺序和提交契约一致。
+我们同时计算常数基线（直接按训练集正样本比例预测）和 CatBoost 的各项指标。常数基线的作用是给出“完全不学习”的下限，避免把任何一点提升都误认为模型有效。
 
 ```python
-# 全特征基线再拟合，用于最终提交
-final = model_fit(X, y)
-sample = pd.read_csv(DATA/'sample_submission.csv')
-submission = sample.copy()
-offset = 0
-for chunk in pd.read_csv(DATA/'test.csv', chunksize=100000):
-    p = predict(final, features(chunk))
-    values = p[:,1,None]   # 二分类取正类概率
-    submission.loc[submission.index[offset:offset+n], targets[0]] = values[:,0]
-    offset += n
-submission.to_csv(OUT/'submission.csv', index=False)
+from sklearn.metrics import (roc_auc_score, accuracy_score,
+                             balanced_accuracy_score, log_loss,
+                             matthews_corrcoef)
+
+def report(truth, prob):
+    pred = (prob >= 0.5).astype(int)
+    return {
+        "accuracy": accuracy_score(truth, pred),
+        "balanced_accuracy": balanced_accuracy_score(truth, pred),
+        "log_loss": log_loss(truth, prob),
+        "AUC": roc_auc_score(truth, prob),
+        "MCC": matthews_corrcoef(truth, pred),
+    }
+
+# 常数基线：所有样本都预测训练集的正类先验
+base_prob = np.full(len(val_idx), y[fit_idx].mean())
+print("constant:", report(y[val_idx], base_prob))
+print("catboost:", report(y[val_idx], model.predict_proba(X.iloc[val_idx])[:, 1]))
+print("ablation:", report(y[val_idx], alt_pred))
 ```
 
-提交前我们检查列名、行数、ID 唯一性、值非空且概率在 0 到 1 之间。运行日志还会打印耗时、版本和审计信息。我们在验证集上看到提升明显优于常数基线，消融后分数下降，说明 stress_level 和 academic_work_impact 提供了部分预测力，但正如规范所说，这只是诊断，不是部署许可。
+材料没有在正文中给出具体的 holdout 分数，因此我们不虚构数字。我们关注的是指标之间的关系：如果 CatBoost 的 AUC 和 MCC 明显高于常数基线，说明特征中确实存在可学习的信号；消融实验则告诉我们这些信号有多少来自 `stress_level` 与 `academic_work_impact`。最后我们按固定的全特征配方在全部抽样数据上重新拟合，并对测试集分块预测，生成符合 `sample_submission.csv` 格式的提交文件。
+
+```python
+final = CatBoostClassifier(loss_function="Logloss", **params)
+final.fit(X, y, cat_features=X.select_dtypes(include=["object", "string"]).columns.tolist())
+
+sample = pd.read_csv(DATA/"sample_submission.csv")
+submission = sample.copy()
+offset = 0
+for chunk in pd.read_csv(DATA/"test.csv", chunksize=100000):
+    p = final.predict_proba(features(chunk))[:, 1]
+    submission.loc[offset:offset+len(chunk)-1, "addicted_label"] = p
+    offset += len(chunk)
+
+# 提交前做契约检查：行数、id 对齐、概率范围
+assert len(submission) == len(sample)
+assert submission["addicted_label"].between(0, 1).all()
+submission.to_csv("submission.csv", index=False)
+```
 
 ## 三、总结
-本文中我们按 Kaggle Playground S6E8 的规范复现了一个固定参数的 CatBoost 基线，使用种子化的水箱采样限制在 12 万行，分层 20% 验证，并做了预先声明的特征消融。我们通过无状态特征转换保证了可复现性，用常数基线和消融分数审计了标签构造的影响。我们最终生成了符合提交契约的 submission.csv，并在验证集上记录了 accuracy、balanced_accuracy、AUC、MCC 和 log_loss。整个流程强调学习基线、独立评估和可用性审计，而不是在排行榜上调优。
+本文中我们完成了屏幕使用习惯与标签构建研究的基线复现。我们首先用分块读取和固定随机种子的蓄水池抽样把训练数据控制在 12 万行，并统计了缺失与标签分布。其次我们采用无状态的特征处理，把缺失类别单独编码，避免在验证集上做任何目标统计。接着我们用固定参数的 CatBoost 在 20% 分层 holdout 上训练，并预先设计了一个去掉 `stress_level` 与 `academic_work_impact` 的消融实验。最后我们报告了准确率、平衡准确率、对数损失、AUC 和 MCC，并按相同配方生成测试集提交文件。这个练习提醒我们：当标签由问卷字段构造时，高分可能来自规则重建而不是新现象，必须用消融和独立评估来区分两者。
