@@ -1,238 +1,170 @@
-# Flavours of Physics：寻找 τ → 3μ 奇异衰变
+# 味之物理：寻找 τ → 3μ 衰变（Flavours of Physics）
 
 ## 一、比赛简介
 
 ### 1.1 比赛背景
 
-在粒子物理里，标准模型预言，一个叫「τ（读作 tau）子」的粒子绝大多数情况下会衰变成较少的轻子。但有一些**超出标准模型**的理论猜想：τ 子偶尔会直接衰变成三个「μ（muon，缪）子」，记作 **τ → 3μ**。如果真实数据里真的出现这种衰变，就意味着存在新物理。
+在 CERN 的大型强子对撞机（LHC）上，质子高速相撞会产生大量粒子。物理学家想在其中找到一种极其罕见的衰变：**τ 轻子（读音「套」）衰变成三个 μ 子（读音「缪」）**，记作 τ → 3μ。按照现有理论，这个过程被压得极低，如果真的被观察到，就可能是新物理的线索。
 
-问题在于：这种衰变极其罕见，而背景噪声（普通的不相关粒子对）数量是以千万计的。要在一堆噪声里证明「有这么 30 个事件是真的」非常困难，所以科学家不只是关心「模型能不能把信号挑出来」，更关心**模型给出的概率分布不能偏离真实数据**——否则哪怕分数再好看，换成真实数据后就站不住脚。
-
-这个比赛由 CERN（欧洲核子研究中心）提供数据，用蒙特卡洛（Monte Carlo）模拟生成信号和本底样本，参赛者的任务是训练一个分类器，从上百万个候选事件中把「疑似 τ→3μ」的事件挑出来，并给出每个事件属于信号的概率。
+比赛的数据是 CERN 用模拟程序生成的「候选事件」：每条样本记录了一次三个 μ 子同时出现的重建结果，包括它们从哪里飞出来、飞了多远、动量多大、周围有多「干净」等等。标签 `signal` 告诉我们这次事件到底是真的 τ→3μ（1），还是普通背景（0）。难点在于：信号极其稀少、背景千千万万，而且物理学家非常担心模型「学到假的规律」——所以除了分类准，还要通过两道物理一致性检验。
 
 ### 1.2 比赛目标
 
-给每个事件打一个 0 到 1 的分数（越接近 1 越像信号）。训练集 `training.csv` 有 67553 行、50 多个特征列，行是每一个「候选事件」，列是探测器重建出来的物理量，比如：
+训练集 `training.csv` 有 67,553 行、51 列，主要特征可以分成几组：
 
-- 粒子的寿命 `LifeTime`、飞行距离 `FlightDistance` 及其误差；
-- 方向余弦 `dira`（飞行方向与动量方向的夹角余弦）；
-- 顶点拟合质量 `VertexChi2`、碰撞参数 `IP` / `IPSig`；
-- 三条子径迹的动量 `p0_p / p1_p / p2_p`、横向动量 `pt`、撞击参数 `IPSig` 等；
-- 孤立度特征 `isolationa ~ isolationf`、`iso`；
-- 标签列 `signal`：1 表示模拟信号事件，0 表示本底事件。
+- **衰变几何**：`LifeTime`、`FlightDistance`、`FlightDistanceError`、`dira`（飞行方向与动量方向的夹角余弦）、`VertexChi2`（顶点拟合质量）；
+- **碰撞点偏离**：`IP`、`IPSig` 及其两两组合 `IP_p0p2`、`IP_p1p2`；
+- **三个子粒子**：`p0_*`、`p1_*`、`p2_*` 各自的动量 `p`、横动量 `pt`、赝快度 `eta`、IP、IPSig、径迹拟合质量 `track_Chi2Dof`、隔离度 `IsoBDT`；
+- **整体隔离度**：`isolationa~f`、`iso`、`ISO_SumBDT`、`CDF1~3`；
+- **辅助列**：`SPDhits`（探测器击中数）、`production`（数据来源标记）、`mass`（重建质量）、`min_ANNmuon`（一个现成的判别分数）。
 
-测试集只有特征、没有标签，我们把每个样本的预测概率写成 `prediction` 提交。真正麻烦的是数据里还藏着两个「小测验」表：
-
-- `check_agreement.csv`：用来检验模型在**真实数据 vs 模拟数据**上预测分布是否一致（做 KS 检验）；
-- `check_correlation.csv`：用来检验模型的预测分数会不会跟某个物理量（质量 mass）发生不该有的相关性（做 CvM 检验）。
+测试集 `test.csv` 没有标签，我们要给每条 `id` 输出一个 `prediction` 概率。此外还提供两个特殊文件：`check_agreement.csv` 用来检验模型预测分布与真实数据是否一致，`check_correlation.csv` 用来检验预测是否和质量 `mass` 相关。
 
 ### 1.3 评价标准
 
-官方评价脚本会依次做三件事：
+排行榜分数是 **AMS（Approximate Median Significance，近似中位数显著性）**，它衡量「在给定误报率下能发现多少信号」，越高越好。但提交必须先通过两道门槛：
 
-1. **加权截断 AUC**：只在 `min_ANNmuon > 0.4` 的事件上计算 ROC 曲线，且给高真阳性率（TPR）区段加权，权重为 `(4, 3, 2, 1, 0)`——也就是说，模型必须在高灵敏度区间仍然有效，光在低阈值虚高的模型得不了分；
-2. **KS 检验**：在 `check_agreement` 上比较本底和信号预测分布的差异，要求 `KS < 0.09`；
-3. **CvM 检验**：在 `check_correlation` 上检查预测概率是否随质量平滑、无尖峰，要求 `CvM < 0.002`。
+1. **KS 检验**（Kolmogorov-Smirnov）：在 `check_agreement` 上比较真实数据与模拟数据的预测分布，要求 KS **< 0.09**；
+2. **CvM 检验**（Cramér-von Mises）：在 `check_correlation` 上检查预测是否随 `mass` 变化，要求 CvM **< 0.002**。
 
-最后排榜用的总指标是一个兼顾「信号显著性」的分数（官方脚本里的 AMS 类指标）。直观理解：**AUC 越高说明分得越清，但 KS/CvM 不过关，提交直接视为无效**——这是这个比赛和普通分类比赛最大的不同。
-
----
+材料里的评估脚本还实现了 `roc_auc_truncated`——一种按灵敏度区间加权的 ROC-AUC，权重为 `(4, 3, 2, 1, 0)`，用来在本地衡量「高信号效率区间的排序质量」。换句话说，比赛既要 AUC 高，又要分布「像真的物理」。
 
 ## 二、解题过程
 
-我们首先用 EDA 摸清数据里有什么坑，其次做了样本预筛和特征选择，接着训练了一个 XGBoost 分类器，最后用官方给的 KS/CvM 检验把关，只有两项都通过了才提交。下面按四步展开。
+我们首先读入四个文件并做基本统计，其次按物理惯例做预选和去列，接着用 XGBoost 训练二分类模型，然后在本地算加权 AUC 并跑 KS/CvM 两道检验，最后确认通过后生成提交文件。
 
 ### 2.1 数据探索（EDA）
 
-我们先把几个数据文件读进来，看看样本量和类别分布：
-
 ```python
-import numpy as np
 import pandas as pd
 
 train = pd.read_csv('../input/flavours-of-physics/training.csv.zip')
-check_agreement = pd.read_csv('../input/flavours-of-physics/check_agreement.csv.zip')
+check_agreement   = pd.read_csv('../input/flavours-of-physics/check_agreement.csv.zip')
 check_correlation = pd.read_csv('../input/flavours-of-physics/check_correlation.csv.zip')
-test = pd.read_csv('../input/flavours-of-physics/test.csv.zip')
+test  = pd.read_csv('../input/flavours-of-physics/test.csv.zip')
 
-# 训练集 5 万多行、51 列；标签 signal 只有 0/1 两种取值
-train.signal.nunique()          # 2
-train.signal.value_counts()     # 1: 41674, 0: 25879
+print(train.shape)                 # (67553, 51)
+print(train['signal'].value_counts())
+# 1    41674
+# 0    25879
 ```
 
-从输出看，训练集共 67553 行，其中信号 41674 条、本底 25879 条，**信号比本底还多**，这是模拟实验里一种人为的配比：真实实验里信号凤毛麟角，但训练时如果信号太少，分类器根本学不到特征。
-
-接着我们观察每个特征的数值分布。下面的 `describe()` 会打印所有特征的最小值、最大值、均值、方差：
+看到的数据有几个特点。第一，信号比背景还多一些（41,674 对 25,879），这是因为训练集是特意为「学习信号形状」构造的，和真实实验里信号稀缺的情况不同——所以不能用普通准确率，要用 AMS 这种考虑信号显著性的指标。第二，每列都是连续物理量，量纲差异极大：`FlightDistance` 可以上万，`dira` 在 0 到 1 之间，`VertexChi2` 可能只有个位数。第三，`min_ANNmuon` 已经是一个不错的判别量，通常的做法是**只用它做粗筛**，而不是直接拿它当特征。
 
 ```python
-# 先丢掉无用列：id、质量、标签、以及用来分桶的 min_ANNmuon
-train_pre = train.drop(train[train.min_ANNmuon <= 0.4].index)   # 只看评分区间
-train_features = train_pre.drop(
-    ['min_ANNmuon', 'mass', 'production', 'signal', 'id', 'SPDhits'], axis=1)
-train_labels = train_pre['signal']
-train_features.describe().T[['mean', 'std', 'min', 'max']]
+# 看每个特征的取值范围和分位数，判断有没有异常值和极端量纲
+train.describe().T[['mean', 'std', 'min', '50%', 'max']]
 ```
 
-这一步同时告诉我们一个重要事实：**评分只针对 `min_ANNmuon > 0.4` 的事件**，所以训练模型前我们会把不满足这个条件的事件暂时排掉。计算下来剩下的训练样本是 38012 行。
+进一步观察会发现两个值得注意的现象。
 
-```python
-# 检查是否有缺失值；第一次直接跑会看到的输出（示意）
-# train.isnull().sum().sum()
-```
+第一，很多特征有长尾和重尾分布：比如 `FlightDistance` 的中位数只有几，但最大值可以到几万，说明存在个别「飞得特别远」的事件；`IP`（碰撞点偏离量）的分布也极度右偏。树模型不受量纲和偏态影响，我们据此把 XGBoost 定为基线模型——如果选的是对尺度敏感的模型（比如原始特征的神经网络），这一步就必须先做标准化了。
 
-运行结果没有缺失值，但特征量纲差别很大（`pt` 动辄上千、`dira` 却接近 1），属于典型的「物理量分布很宽」的数据，后面需要靠树模型的机制去自动处理，不需要手动标准化。
+第二，`mass`（重建质量）的分布有明显的峰。真正的 τ→3μ 信号会集中在一个特征质量附近，而背景是平滑下降的本底。模型会不会「捡芝麻」——靠质量峰去认信号？这正是 `check_correlation` 里 CvM 检验要盯住的事。我们把它记下来，防止后面调参时不小心让模型过度依赖 `mass`。
 
-我们还想看看信号和本底在单个特征上到底差多少。于是挑了几个最有物理含义的变量，分别画两组直方图：
-
-```python
-import matplotlib.pyplot as plt
-
-cols = ['LifeTime', 'FlightDistance', 'IPSig', 'iso', 'VertexChi2']
-fig, axes = plt.subplots(1, len(cols), figsize=(20, 4))
-for ax, col in zip(axes, cols):
-    # 信号画一套分布，本底画一套分布，重叠起来看区分度
-    ax.hist(train[train.signal == 1][col], bins=50, alpha=0.5, label='signal', density=True)
-    ax.hist(train[train.signal == 0][col], bins=50, alpha=0.5, label='background', density=True)
-    ax.set_title(col)
-    ax.legend()
-plt.tight_layout()
-plt.show()
-```
-
-结果很符合物理直觉：信号事件的 `LifeTime` 和 `FlightDistance` 分布更「长」——τ 子寿命短但飞行距离相对明显；本底事件则集中在接近 0 的位置。`IPSig`（撞击参数显著性）也有类似的分层。这告诉我们：**单个特征就能提供不少区分度，但没有任何一个特征能一刀切开**，必须让模型去组合多个弱特征——这正是树模型擅长的事。
-
-我们还检查了 `mass` 这一列。它不参与训练（否则模型会直接「背答案」），但它是 CvM 检验的核心变量，所以后面要单独拿出来做相关性检查。
+我们还专门分析过 `min_ANNmuon` 的取值分布，发现绝大多数背景事件这一项都很低，信号整体则偏高。这个「现成的打分」帮我们确定了 0.4 这个预选阈值：把 0.4 以下的丢掉几乎不损失信号，却能去掉大量噪声。
 
 ### 2.2 数据清洗
 
-这个比赛的数据清洗有两层意思。
+我们按照物理分析的惯例做了两步清洗。
 
-**第一层：样本预筛。** 我们知道评分只在 `min_ANNmuon > 0.4` 区间上算，所以在训练前先把不满足条件的事件删掉，让模型专注于「真正会被打分的样本」；除此之外不删除任何样本，因为每一个事件都是真实测量，不应轻易丢掉。
+第一步，**预选**：把 `min_ANNmuon <= 0.4` 的事件丢掉。这个阈值意味着「连初步判别器都认为它不像 μ 子的事件，不值得再花力气」。预选之后训练集从 67,553 行降到 38,012 行，背景噪声大幅减少。
 
-**第二层：写评价脚本。** 官方给的核心逻辑是一段 `evaluation.py`，我们自己复刻一遍，既当「清洗工具」又当「评分工具」。里面三个函数最有代表性：
-
-```python
-from sklearn.metrics import roc_curve, auc
-
-def roc_auc_truncated(labels, predictions,
-                      tpr_thresholds=(0.2, 0.4, 0.6, 0.8),
-                      roc_weights=(4, 3, 2, 1, 0)):
-    """加权截断 AUC：TPR 越高的区段权重越大"""
-    fpr, tpr, _ = roc_curve(labels, predictions)
-    area = 0.
-    tpr_thresholds = [0.] + list(tpr_thresholds) + [1.]
-    for index in range(1, len(tpr_thresholds)):
-        tpr_cut = np.minimum(tpr, tpr_thresholds[index])
-        tpr_previous = np.minimum(tpr, tpr_thresholds[index - 1])
-        area += roc_weights[index-1] * (auc(fpr, tpr_cut, reorder=True)
-                                        - auc(fpr, tpr_previous, reorder=True))
-    # 归一化：理想分类器分数为 1
-    tpr_thresholds = np.array(tpr_thresholds)
-    area /= np.sum((tpr_thresholds[1:] - tpr_thresholds[:-1]) * np.array(roc_weights))
-    return area
-```
+第二步，**去列**：删掉标签列、编号列、与物理判断无关或会引入泄漏的列。
 
 ```python
-def compute_cvm(predictions, masses, n_neighbours=200, step=50):
-    """CvM 检验：看预测分数是否在 mass 不同的分箱里分布一致"""
-    predictions = np.array(predictions)
-    masses = np.array(masses)
-    # 按质量排序后，把概率换成「排序的序号」，只关心相对顺序
-    predictions = predictions[np.argsort(masses)]
-    predictions = np.argsort(np.argsort(predictions, kind='mergesort'), kind='mergesort')
-    cvms = []
-    # 用滑动窗口把样本按质量切成一个个近邻箱
-    for window in __rolling_window(predictions, window_size=n_neighbours)[::step]:
-        cvms.append(__cvm(subindices=window, total_events=len(predictions)))
-    return np.mean(cvms)
+# 预选：只保留初步 μ 子判别分数足够高的事件
+train_pre = train.drop(train[train.min_ANNmuon <= 0.4].index)
+print(train_pre.shape)   # (38012, 51)
+
+# 建模特征：去掉标签、编号、质量、数据来源和 SPDhits
+drop_cols = ['min_ANNmuon', 'mass', 'production', 'signal', 'id', 'SPDhits']
+train_features = train_pre.drop(columns=drop_cols)
+train_labels = train_pre['signal']
+
+# 测试集也必须做同样的列选择，保证训练/测试特征完全一致
+test_features = test.drop(columns=['id', 'SPDhits'])
 ```
 
-写这段代码的目的是**模仿官方评分环境**：本地先把 KS 和 CvM 都算出来，达不到门槛就不浪费一次提交机会。
+为什么要删 `SPDhits`？它是探测器整体的击中数，反映的是「这一束碰撞有多热闹」，而不是这次衰变本身的物理性质。把它放进模型，模型可能靠「哪一天探测器比较忙」来区分信号和背景，这种规律在真实数据上不成立，会直接导致 `check_agreement` 的 KS 检验翻车。同理，`mass` 在训练里是辅助信息、在测试里没有，留着只会让训练和测试特征对不上。
+
+这里还要提醒一个细节：**预选只对训练集做**。测试集没有 `min_ANNmuon`，所以预测时不能按同样的阈值筛选，否则会漏掉一部分测试样本、导致提交行数不够。
 
 ### 2.3 模型训练与超参数调优
 
-我们选的主模型是 **XGBoost（eXtreme Gradient Boosting）**。它是梯度提升树的一种高效实现，适合这种「特征有噪声、特征间相关性弱」的物理数据，而且自带正则项，不容易过拟合。
-
-我们先用一个随机划分出验证集：用 80% 的数据训练，20% 的数据看本地效果，同时固定随机种子保证可复现：
+主模型用 **XGBoost**（一种基于梯度提升的树模型，很多棵决策树依次修正前一棵的错误，在表格数据上非常强）。考虑到训练集只有 3.8 万行、特征 40 多个，我们用较深但带采样的配置来平衡拟合能力和泛化：
 
 ```python
-from sklearn.model_selection import train_test_split
-
-X_train, X_valid, y_train, y_valid = train_test_split(
-    train_features, train_labels,
-    test_size=0.2, random_state=42, stratify=train_labels)
-# stratify: 让验证集里信号/本底的比例和全体一致，防止划分偏差
-```
-
-训练参数来自材料里的那组「实测可用」的配置，核心是「把弱学习器做得小一点、随机一点，靠数量堆出稳定结果」：
-
-```python
+import time
 import xgboost as xgb
 
+t0 = time.perf_counter()
 params = {
-    "objective": "binary:logistic",   # 二分类，输出概率
-    "eta": 0.4,                        # 学习率，每棵树对结果的贡献比例
-    "max_depth": 6,                    # 单棵树最多 6 层，防止过深
-    "min_child_weight": 3,             # 叶子节点最小样本权重，越大越保守
-    "subsample": 0.5,                  # 每棵树只用一半样本，加入随机性
-    "colsample_bytree": 0.7,           # 每棵树只随机用 70% 的特征
-    "seed": 2,
+    'objective': 'binary:logistic',  # 二分类，输出 0~1 的概率
+    'eta': 0.4,                      # 学习率：每棵树的贡献打四折，收敛快
+    'max_depth': 6,                  # 每棵树最深 6 层，控制复杂度
+    'min_child_weight': 3,           # 叶子节点最少 3 个样本，防止切得太碎
+    'subsample': 0.5,                # 每棵树只用一半样本，增加随机性防过拟合
+    'colsample_bytree': 0.7,         # 每棵树只用 70% 特征，进一步去相关
+    'seed': 2,                       # 固定随机种子，保证结果可复现
 }
 n_trees = 300
 model = xgb.train(params, xgb.DMatrix(train_features, train_labels), n_trees)
+print('训练耗时: %.2f 秒' % (time.perf_counter() - t0))  # 材料中约 17.56 秒
 ```
 
-我们并没有盲目调参，而是采用「少参数、验证集上对比」的策略：先定下 `subsample=0.5` 和 `colsample_bytree=0.7` 这两个「随机化」参数，让每棵树都长得不一样；再试着把 `max_depth` 从 5 调到 6、`min_child_weight` 从 1 调到 3，观察验证集 AUC 的变化。材料里的记录显示，这组参数在本地训练只花约 18 秒，效果稳定，没有出现过拟合信号。
+调参思路上，材料里还有一份用 `GridSearchCV` 搜索 XGBoost 参数的版本，以及神经网络（Keras 全连接网络）和随机森林两个对比模型。神经网络在这个任务上也能跑到相近水平，但树模型对特征量纲不敏感、训练只要十几秒，性价比更高，所以我们把它当主线。`eta=0.4` 配 300 棵树是「学习率大、树少」的组合；如果换成 `eta=0.05`，就需要上千棵树，训练时间会明显变长，而验证收益并不大。
 
-除了 XGBoost，材料里还有人用随机森林（RFC）和神经网络（NN）做对照。我们对比后的判断是：随机森林训练更省心、但高灵敏度区间的排序能力不如梯度提升；神经网络需要更多调参和归一化，在这个只有几万条样本的数据上优势不明显。所以我们把主方案定在 XGBoost，其他模型只作为「结果是否一致」的旁证。
+我们比较过几个对照：随机森林（RFC）用同样的特征也能训练，但它对高基数连续特征的切分不如 boosting 精细；全连接神经网络需要标准化、还要调层数和学习率，且在小样本上更容易过拟合。综合下来，XGBoost 在「分数 / 训练成本」这条曲线上最划算。
 
-训练完成后，我们在验证集上打印了混淆矩阵和 ROC 曲线的主观印象：模型对信号的召回能力不错，但更重要的检验是下面那一关——**KS/CvM**。因为一旦模型过度依赖某个和「质量」强相关的特征，它的 AUC 会变高，但 CvM 会立刻超标，这种「作弊式提分」在这个比赛里是走不通的。
+还有一个容易忽略的点：`seed` 不是随便填的。由于这个比赛对分布检验非常敏感，换一个种子就可能让 KS/CvM 从通过变成不通过。我们的做法是**多跑几个种子，挑一个两关都过的**——材料里的作者也明确写了「不是每次运行都能同时满足 cvm 和 ks 条件」。
 
 ### 2.4 模型测试与指标报告
 
-我们把训练好的模型拿到 `check_agreement` 和 `check_correlation` 上分别做预测，然后用前面复刻的评价脚本计算门槛值：
+训练完之后，先做两道物理检验。检验用的预测必须在 `check_agreement` 和 `check_correlation` 上做，且特征要与训练时完全一致：
 
 ```python
-# 构造两个检验用的特征表（和训练时特征对齐）
-agr_features  = check_agreement.drop(['signal', 'id', 'weight', 'SPDhits'], axis=1)
-cor_features  = check_correlation.drop(['id', 'mass', 'SPDhits'], axis=1)
+import evaluation   # 比赛方提供的评估脚本（含 KS / CvM / 加权 AUC）
 
-agr_probs = model.predict(xgb.DMatrix(agr_features))
-cor_probs = model.predict(xgb.DMatrix(cor_features))
+# 两个检验集的预测
+agreement_probs   = model.predict(xgb.DMatrix(
+    check_agreement.drop(columns=['signal', 'id', 'weight', 'SPDhits'])))
+correlation_probs = model.predict(xgb.DMatrix(
+    check_correlation.drop(columns=['id', 'mass', 'SPDhits'])))
 
-# KS 检验：真实本底和模拟本底的预测 cdf 差不能太大
+# KS 检验：真实数据(0) 与 模拟数据(1) 的预测分布差异，必须小于 0.09
 ks = evaluation.compute_ks(
-    agr_probs[check_agreement['signal'].values == 0],
-    agr_probs[check_agreement['signal'].values == 1],
+    agreement_probs[check_agreement['signal'].values == 0],
+    agreement_probs[check_agreement['signal'].values == 1],
     check_agreement[check_agreement['signal'] == 0]['weight'].values,
     check_agreement[check_agreement['signal'] == 1]['weight'].values)
-print('KS metric', ks, ks < 0.09)
-# => KS metric 0.0849 True
+print('KS metric', ks, ks < 0.09)     # 材料中一次运行：0.08495 True
 
-# CvM 检验：预测分数不能与质量出现异常相关性
-cvm = evaluation.compute_cvm(cor_probs, check_correlation['mass'])
-print('CvM metric', cvm, cvm < 0.002)
-# => CvM metric 0.00082 True
+# CvM 检验：预测是否随 mass 变化，必须小于 0.002
+cvm = evaluation.compute_cvm(correlation_probs, check_correlation['mass'])
+print('CvM metric', cvm, cvm < 0.002)  # 材料中一次运行：0.000824 True
 ```
 
-我们得到 `KS = 0.0849 < 0.09`、`CvM = 0.00082 < 0.002`，两项全部通过。材料特别提醒：**不是每次运行都能同时通过**——因为随机种子变化会让模型训练结果有微小波动，落在门槛边缘时就要重新跑一遍，直到两项都满足为止。
+这一步的结果很能说明这个比赛的性格：同一位作者的另一份提交里，KS = 0.065（通过），但 CvM = 0.00918（**没通过**）。也就是说，模型在「分类」上没问题，但在「和质量的相关性」上翻了车。这提醒我们：**训练完不能只看 AUC，必须每次都跑完两道检验再决定要不要提交**。
 
-两项都通过后，我们才对测试集做预测并生成提交文件：
+确认两关都通过后，才对测试集预测并写文件：
 
 ```python
-test_features = test.drop(['id', 'SPDhits'], axis=1)
-test_probs = model.predict(xgb.DMatrix(test_features)).reshape(-1,)
-
-submission = pd.DataFrame({"id": test["id"], "prediction": test_probs})
-submission.to_csv("submission.csv", index=False)
-# 检查行数是否和测试集一致、prediction 是否都在 [0,1]
-assert len(submission) == len(test)
+if cvm < 0.002 and ks < 0.09:
+    test_probs = model.predict(xgb.DMatrix(test_features)).reshape(-1,)
+    submission = pd.DataFrame({'id': test['id'], 'prediction': test_probs})
+    submission.to_csv('submission.csv', index=False)
+    print('已生成提交文件，行数:', len(submission))
+else:
+    print('检验未通过，需要换随机种子重新训练')
 ```
+
+本地评估方面，我们还用 `roc_auc_truncated` 在 `check_agreement` 上画了 ROC 曲线，看模型在高信号效率区间（TPR 0.2~0.8）的排序表现。这个加权 AUC 比普通 AUC 更贴近 AMS 的偏好：它把「能捞到多少真信号」看得比「整体排序对不对」更重。
 
 ---
 
 ## 三、总结
 
-本文中我们完成了 Flavours of Physics（τ→3μ）分类任务的完整流程。我们首先用 EDA 摸清数据：67553 行训练样本、51 个特征、信号本底比例约 6:4，并确认评分只针对 `min_ANNmuon > 0.4` 的事件；其次做了两层「清洗」——预筛掉不在评分区间的事件，并复刻官方评价脚本以备自检；接着用 XGBoost（`subsample=0.5`、`colsample_bytree=0.7`、`max_depth=6`）训练分类器；最后在 `check_agreement` 上通过 KS 检验（0.0849 < 0.09）、在 `check_correlation` 上通过 CvM 检验（0.00082 < 0.002）之后才提交。
+本文中我们完成了 Flavours of Physics τ→3μ 衰变识别的完整流程。我们首先读入训练、测试、一致性检验和相关性检验四个文件，确认训练集 67,553 行、信号 41,674 条、背景 25,879 条。其次我们按物理惯例做预选（丢掉 `min_ANNmuon <= 0.4` 的事件，剩 38,012 行）并删掉 `SPDhits`、`mass`、`production` 等会引入偏差或对不齐的列。接着我们用 XGBoost（`eta=0.4`、`max_depth=6`、300 棵树）训练二分类模型，训练耗时约 17.6 秒。然后我们在本地算加权 AUC，并在 `check_agreement` / `check_correlation` 上跑 KS 与 CvM 检验，得到 KS≈0.085、CvM≈0.0008，两项都达标。最后我们生成 `id,prediction` 格式的提交文件。
 
-这个比赛最大的不同是：**局部 AUC 高不算赢，能不能通过物理检验才算数**。一个模型哪怕能把模拟数据分得再好，如果它在真实数据上与宇宙给出的分布打架，物理学家也不敢用。这让我们真正理解了「指标服务于领域」这句话。
+这个比赛让我们记住了一件事：**在科学任务里，「预测得准」只是及格线，「预测得符合已知规律」才是真正的门槛**。同一次训练，换一个随机种子就可能让 CvM 从 0.0008 跳到 0.009，因此每次提交前都必须把一致性检验跑完，而不是盯着一个验证分数就交卷。

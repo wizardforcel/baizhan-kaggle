@@ -9,12 +9,12 @@
 给定 13 个特征，预测 MEDV，即房屋中位数自住单价（单位 $1000）。训练集与测试集分别提供，目标为回归。
 
 ### 1.3 评价标准
-使用均方误差 MSE 评估，数值越低越好。模型需对异常值与尺度差异敏感。
+使用均方误差 MSE 评估，数值越低越好。模型需对异常值与尺度差异敏感。MSE 由于对误差取平方，会让预测差得最多的样本主导分数。
 
 ---
 ## 二、解题过程
 
-我们采用清洗、稳健缩放、异常值处理、线性/梯度提升组合的方式。
+我们采用清洗、稳健缩放、异常值处理、线性/梯度提升组合的方式。先看分布，再处理极端值，最后比较两个回归器。
 
 ### 2.1 数据探索（EDA）
 
@@ -30,11 +30,15 @@ CRIM、LSTAT 等呈现右偏，RM 与 MEDV 正相关，LSTAT 与 MEDV 负相关�
 columns = ['CRIM','ZN','INDUS','CHAS','NOX','RM','AGE','DIS','RAD','TAX','PTRATIO','B','LSTAT','MEDV']
 for col in columns:
     sns.boxplot(data=train, x=col)
+    plt.title(f"{col} Box Plot")
+    plt.show()
 ```
+
+我们画了被注释掉的 log 变换与阈值置空方案，是刻意保留的备选；最终采用 IQR + 中位数替代的稳健方案。
 
 ### 2.2 数据清洗
 
-先用 RobustScaler 处理尺度差异。
+先用 RobustScaler 处理尺度差异，它对离群值不敏感，适合本数据。
 
 ```python
 from sklearn.preprocessing import RobustScaler
@@ -42,7 +46,7 @@ scaler = RobustScaler()
 X_train_s = scaler.fit_transform(X_train)
 ```
 
-异常值用 IQR 方法置为 NaN 后再用模型填补。
+异常值用 IQR 方法置为 NaN 后再用模型填补。IQR 即四分位距，落在 [Q1-1.5*IQR, Q3+1.5*IQR] 之外的点被标记为异常。
 
 ```python
 for col in X_train.columns:
@@ -57,9 +61,14 @@ for col in X_train.columns:
 
 ```python
 def fill_missing_values(df, target_col, feature_col):
+    train_data = df[df[target_col].notnull()]
+    test_data = df[df[target_col].isnull()]
+    if test_data.empty:
+        return df
     clf = HistGradientBoostingRegressor(random_state=42)
     clf.fit(train_data[feature_col], train_data[target_col])
     df.loc[df[target_col].isnull(), target_col] = clf.predict(test_data[feature_col])
+    return df
 ```
 
 ### 2.3 模型训练与超参数调优
@@ -74,13 +83,15 @@ lr_score = mean_squared_error(y_test, lr.predict(x_test))
 print(f"Linear Regression MSE:{lr_score}")
 ```
 
-随后尝试 HistGradientBoostingRegressor，自动处理非线性关系。
+数据按 80/20 划分，random_state=42 保证可复现。随后尝试 HistGradientBoostingRegressor，自动处理非线性关系，无需做数据缩放。
 
 ```python
 from sklearn.ensemble import HistGradientBoostingRegressor
 hgb = HistGradientBoostingRegressor(random_state=42)
 hgb.fit(X_train, y_train)
 ```
+
+对比下来，清洗后的数据对 LinearRegression 提升最明显，而 HistGradientBoosting 在长尾特征上略有优势。
 
 ### 2.4 模型测试与指标报告
 

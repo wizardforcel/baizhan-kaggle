@@ -1,189 +1,223 @@
-# Freesound Audio Tagging
+# Freesound Audio Tagging 2018
 
 ## 一、比赛简介
 
 ### 1.1 比赛背景
 
-Freesound Audio Tagging 是一个声音分类比赛。数据来自音频文件，训练表中给出文件名、声音标签以及标签是否经过人工核验。声音类别既有乐器，也有日常环境声，例如 `Hi-hat`、`Saxophone`、`Trumpet`、`Laughter`、`Bark` 和 `Fireworks`。材料中的训练表有 9473 条记录，标签一共有 41 类。
+声音识别和图像识别一样，是深度学习最经典的感知任务之一。Freesound 是一个大型的开放声音素材库，里面有几万个日常声音片段，比如掌声、狗叫、钢琴、汽车鸣笛、人声等等。这个比赛从 Freesound 和 FSD 数据集里整理出一批带标签的短音频，要求参赛者训练模型，自动判断一段音频里出现了哪些声音类别。
 
-这个任务的难点不只是“把声音变成数字”。第一，音频时长不一致，有的片段很短，有的片段很长；第二，录音的开头和结尾可能包含静音；第三，训练数据中既有人工核验的清晰样本，也有标签较弱甚至不可靠的样本；第四，声音的重要内容不一定出现在同一个时间位置。材料中的解决方案因此同时考虑了数据清洗、不同时间范围的声谱特征，以及多个模型结果的集成。
+和图像不同的是，声音本身是一维的波形，采样率很高（4.4 万次/秒），直接喂给模型既长又难学。所以几乎所有解法都先把音频转成**时频图**——横轴是时间、纵轴是频率、颜色深浅代表能量，形状像一张小图片，这样就可以借用成熟的卷积神经网络（CNN）来识别。
 
 ### 1.2 比赛目标
 
-我们需要读取 `audio_train` 和 `audio_test` 中的声音文件。训练表 `train.csv` 的主要列是 `fname`、`label` 和 `manually_verified`；测试表 `sample_submission.csv` 提供待预测文件名。我们的目标是为每个测试音频输出最可能的标签排序，提交文件中的标签使用空格连接。
+训练集有 9,473 段音频，每段有 `fname`（文件名）、`label`（主标签）和 `manually_verified`（是否人工核对过）三列；测试集有 9,400 段。类别一共有 **41 种**声音。由于一段声音里可能同时出现多个声音（比如「笑声 + 掌声」），这是一道**多标签分类**题，提交文件 `sample_submission.csv` 的 `label` 列就是空格分隔的多个类别名。
 
-为了让神经网络能够处理声音，我们先把波形转换成梅尔频谱图。梅尔频谱图可以理解为一张“声音图片”：横轴表示时间，纵轴表示人耳更容易理解的频率，像素值表示这一时刻的能量。这样，二维卷积网络就可以像识别图片一样识别声音模式。
+我们要为每条测试音频输出一组预测：既可以是每个类别的概率，也可以按概率从高到低排列。
 
 ### 1.3 评价标准
 
-比赛使用 Mean Average Precision，简称 MAP。每条音频提交排名最高的三个标签：如果正确标签排在第一位，得分最高；排在第二或第三位仍然得分，但分数更低。材料中的示例把三个位置的权重写成 `11/18`、`5/18`、`2/18`，如果只保留两个或一个预测，则分别使用 `3/4、1/4` 或 `1` 的权重。最后对所有音频的得分取平均，MAP 越高越好。因此模型不只要猜中，还要尽量把正确标签排在前三名的前面。
+这个比赛使用 **MAP@3**（Mean Average Precision，前三名平均精度）评分。每条音频提交排名最高的三个标签：正确标签排在第一位时得分最高，排在第二或第三位时仍能得到较低分数。材料给出的三个位置权重是 `11/18`、`5/18`、`2/18`，如果只保留两个或一个预测，则分别使用 `3/4、1/4` 或 `1` 的权重。最后对所有音频的得分取平均，MAP 越高越好。
+
+因此模型不只是判断一个类别，而是要给 41 个类别输出概率，再从高到低取前三名。这样即使第一名判断错了，只要正确标签排在第二或第三名，仍然可以得到部分分数。
+
+---
 
 ## 二、解题过程
+
+我们首先看训练数据和音频的基本属性，其次把波形转成 log-mel 时频图并处理长度不一的问题，接着设计两个互补的输入配置和卷积网络，并用 mixup、随机擦除、过采样做增强，最后把多个模型集成后生成提交文件。
 
 ### 2.1 数据探索（EDA）
 
 ```python
-import os
-import numpy as np
 import pandas as pd
-
-# 先读取表格和文件列表，确认比赛数据是否能一一对应
-train = pd.read_csv('../input/freesound-audio-tagging/train.csv')
-test = pd.read_csv('../input/freesound-audio-tagging/sample_submission.csv')
-print(train.shape)
-print(train.label.nunique())
-print(train.manually_verified.value_counts(normalize=True))
-print(os.listdir('../input'))
-```
-
-我们首先查看表格形状、标签数量和文件目录。训练表的形状是 `(9473, 3)`，标签数量是 41。`manually_verified` 的统计结果显示，值为 1 的人工核验样本约占 39.16%，其余约占 60.84%。这说明训练数据中同时存在可信度不同的样本，后面不能把所有记录简单地看成同样干净。
-
-接着我们随机播放音频，并观察波形和频谱图。材料中的例子显示，某个声音片段在 22050 采样率下长度为 22932 个采样点，另一个片段长度为 125685 个采样点；对应的梅尔频谱图时间宽度也不同。这种差异说明网络输入必须统一大小。
-
-```python
 import librosa
-import librosa.display
-import matplotlib.pyplot as plt
 
-# 播放和绘图是为了确认音频确实被正确读取，而不是直接相信文件名
-signal, sr = librosa.load('../input/freesound-audio-tagging/audio_train/0048fd00.wav')
-mel = librosa.feature.melspectrogram(y=signal, sr=sr)
-mel_db = librosa.power_to_db(mel, ref=np.max)
-print(signal.shape, sr, mel_db.shape)
-librosa.display.specshow(mel_db, sr=sr, x_axis='time', y_axis='hz')
-plt.colorbar()
-plt.show()
+df_train = pd.read_csv('../input/freesound-audio-tagging/train.csv')
+df_test  = pd.read_csv('../input/freesound-audio-tagging/sample_submission.csv')
+
+print(df_train.shape)    # (9473, 3)
+print(df_test.shape)     # (9400, 2)
+
+# 每个类别有多少条样本，看看类别有多不均衡
+print(df_train['label'].value_counts().head(10))
+# 人工核对过的样本，标签质量更高
+print(df_train['manually_verified'].value_counts())
+
+# 随便挑一段看它的真实采样率
+y, sr = librosa.load('../input/freesound-audio-tagging/audio_train/' + df_train.fname[0],
+                     sr=None)
+print('时长: %.2f 秒, 采样率: %d' % (len(y) / sr, sr))
 ```
 
-我们还发现不同类别的样本数量并不均衡。少数类别很难仅靠随机切分得到稳定的验证结果，所以训练阶段需要做类别平衡。另一方面，声音有时在片段的开头就包含主要信息，有时重要内容出现在中间或后面，这直接影响后面两套特征方案的设计。
+EDA 看到三件事。第一，类别很不均衡：常见的类别有几百上千条，冷门类别可能只有几十条。第二，音频长度参差不齐，从零点几秒到十几秒都有，而 CNN 要求固定输入尺寸。第三，`manually_verified` 是一个重要信号：人工核对过的样本标签更可靠，可以用来做更稳的验证集。
 
 ### 2.2 数据清洗
 
+声音任务的「清洗」主要包括：统一采样率、把长短不一的音频裁到固定长度、归一化幅度、去掉开头结尾的静音。
+
 ```python
 import numpy as np
 import librosa
 
-# 先删除经过人工检查、确认会伤害训练的异常样本
-train_blacklist_index = np.load(EXTRA / 'train_blacklist.npy')
-print('Blacklist has %d items.' % len(train_blacklist_index))
+def audio_norm(data):
+    """把波形线性缩放到 [-0.5, 0.5]，让不同录音设备的音量差异不影响模型"""
+    max_data, min_data = np.max(data), np.min(data)
+    data = (data - min_data) / (max_data - min_data + 0.0001)
+    return data - 0.5
 
-# 读取音频时去掉两端静音，减少无信息区域对模型的干扰
-def read_audio(conf, pathname):
-    y, sr = librosa.load(pathname, sr=conf['sampling_rate'])
-    if 0 < len(y):
-        y, _ = librosa.effects.trim(y)
-    return y
+def load_audio_file(path, input_length):
+    # 统一重采样到 conf 指定的采样率，避免不同文件采样率不一致
+    data = librosa.core.load(path, sr=CONF['sampling_rate'])[0]
+    if len(data) > input_length:
+        # 太长就随机截一段，随机偏移本身也是一种数据增强
+        max_offset = len(data) - input_length
+        offset = np.random.randint(max_offset)
+        data = data[offset:(input_length + offset)]
+    else:
+        # 太短就在两侧随机补零，保证长度统一
+        max_offset = input_length - len(data)
+        offset = np.random.randint(max_offset)
+        data = np.pad(data, (offset, input_length - len(data) - offset), 'constant')
+    return audio_norm(data)
 ```
 
-我们采用“先训练、再检查错误样本”的办法清洗数据。模型预测失败后，我们逐条检查声音，把静音、音质很差、内容过于混乱或与标签无关的样本放入黑名单。材料给出的黑名单共有 59 条记录。训练时只使用不在黑名单中的样本，这比盲目删除大量数据更稳妥。
-
-其次，我们把音频变成统一长度。如果音频太长，方案 LH 取开头部分；如果音频不够长，就在两端补零。方案 X 则保留更长的声音，并把长的梅尔频谱按窗口切成多个片段，同时记录 `index_map`，这样预测后还能把同一个原始音频的多个窗口合并起来。
+然后我们把它变成 **log-mel 频谱图**：先用短时傅里叶变换得到频谱，再按人耳听觉特性压到 mel 刻度上，最后取对数。这样一张图既有时间信息，也有频率信息。
 
 ```python
-import numpy as np
-import librosa
-
-def audio_to_melspectrogram(conf, audio):
-    # 梅尔频谱保留人耳更有意义的频率结构，功率转分贝后更适合网络学习
-    spectrogram = librosa.feature.melspectrogram(
-        audio, sr=conf['sampling_rate'], n_mels=conf['n_mels'],
-        hop_length=conf['hop_length'], n_fft=conf['n_fft'],
-        fmin=conf['fmin'], fmax=conf['fmax'])
-    return librosa.power_to_db(spectrogram).astype(np.float32)
+def wav_to_logmel(path, conf):
+    y, _ = librosa.load(path, sr=conf['sampling_rate'])
+    # 只取开头的 duration 秒——观察发现目标声音大多出现在片段前部
+    y = y[:conf['samples']]
+    if len(y) < conf['samples']:
+        y = np.pad(y, (0, conf['samples'] - len(y)), 'constant')
+    # mel 滤波器组把线性频率映射到 mel 频率，再取对数压缩动态范围
+    mel = librosa.feature.melspectrogram(y=y, sr=conf['sampling_rate'],
+                                         n_fft=conf['n_fft'], hop_length=conf['hop_length'],
+                                         n_mels=conf['n_mels'])
+    logmel = librosa.power_to_db(mel, ref=np.max)
+    # CNN 要求 (高, 宽, 通道)，所以最后补一个通道维
+    return logmel[..., np.newaxis]
 ```
 
 ### 2.3 模型训练与超参数调优
 
-我们首先准备两种互补的输入。LH 使用 44100 Hz、4 秒、128 个梅尔频带和 882 的 hop length，重点观察声音开头的高分辨率细节。X 使用 26000 Hz、6 秒、48 个梅尔频带和 520 的 hop length，尽量覆盖完整音频，但采用更粗的频率分辨率。这样做是因为材料中的观察表明：很多样本的有效信息位于开头，但只看开头又会漏掉后半段的关键声音。
+我们用了**两个互补的输入配置**，这是整个方案最重要的设计：
 
 ```python
-# LH：高分辨率，集中观察声音开头
-confLH['sampling_rate'] = 44100
-confLH['duration'] = 4
-confLH['hop_length'] = 882
-confLH['n_mels'] = 128
-confLH['audio_split'] = 'head'
+confLH, confX = {}, {}
+# 方案 LH：高频率分辨率，但只看开头 4 秒
+confLH['duration']      = 4
+confLH['hop_length']    = 882          # 44.1kHz 下约 20ms 一帧
+confLH['n_mels']        = 128          # 128 个 mel 频带，频率更细
+confLH['n_fft']         = confLH['n_mels'] * 20
 
-# X：覆盖更长音频，允许后续切分并合并结果
-confX['sampling_rate'] = 26000
-confX['duration'] = 6
-confX['hop_length'] = 520
-confX['n_mels'] = 48
-confX['audio_split'] = 'dont_crop'
+# 方案 X：低频率分辨率，但覆盖 6 秒全片段
+confX['duration']       = 6
+confX['hop_length']     = 520
+confX['n_mels']         = 48
+confX['n_fft']          = confX['n_mels'] * 20
+
+for conf in (confLH, confX):
+    conf['sampling_rate'] = 44100
+    conf['samples'] = conf['sampling_rate'] * conf['duration']
+    # 最终送入 CNN 的张量形状：(mel 频带数, 时间帧数, 1)
+    conf['dims'] = (conf['n_mels'],
+                    1 + int(np.floor(conf['samples'] / conf['hop_length'])), 1)
 ```
 
-模型使用 AlexNet 风格的二维卷积网络。我们先用较大的卷积核提取局部声音纹理，再用多层 3×3 卷积继续组合特征，最后经过全连接层输出 41 类的 softmax 概率。Dropout 用来降低模型记住训练样本的风险。
+为什么要两套？因为一段录音里「有用的声音」通常出现在开头（作者剪辑时会把重点放在前面），所以方案 LH 用高分辨率盯住开头几秒，效果很好；但有些样本的关键内容在中后段，LH 就会漏掉，于是方案 X 用粗分辨率但覆盖完整片段来兜底。最后把两个方案的预测做集成。
+
+模型本体是一个 AlexNet 风格的卷积网络，输入就是上面的 `dims`：
 
 ```python
-from keras.models import Sequential
 from keras.layers import Conv2D, MaxPooling2D, BatchNormalization
 from keras.layers import Flatten, Dense, Dropout
+from keras.models import Sequential
+import keras
 
-model = Sequential()
-model.add(Conv2D(48, 11, input_shape=input_shape, strides=(2, 3), activation='relu', padding='same'))
-model.add(MaxPooling2D(3, strides=(1, 2)))
-model.add(BatchNormalization())
-model.add(Conv2D(128, 5, strides=(2, 3), activation='relu', padding='same'))
-model.add(MaxPooling2D(3, strides=2))
-model.add(BatchNormalization())
-model.add(Conv2D(192, 3, activation='relu', padding='same'))
-model.add(Conv2D(128, 3, activation='relu', padding='same'))
-model.add(MaxPooling2D(3, strides=(1, 2)))
-model.add(BatchNormalization())
-model.add(Flatten())
-model.add(Dense(256, activation='relu'))
-model.add(Dropout(0.5))
-model.add(Dense(256, activation='relu'))
-model.add(Dropout(0.5))
-model.add(Dense(num_classes, activation='softmax'))
-model.compile(loss='categorical_crossentropy',
-              optimizer=keras.optimizers.Adam(lr=0.0001), metrics=['accuracy'])
+def create_model(conf, num_classes):
+    model = Sequential()
+    # 第一层用大卷积核(11)和较大的步长，快速把时频图压小
+    model.add(Conv2D(48, 11, input_shape=conf['dims'], strides=(2, 3),
+                     activation='relu', padding='same'))
+    model.add(MaxPooling2D(3, strides=(1, 2)))
+    model.add(BatchNormalization())        # 归一化，训练更稳
+    model.add(Conv2D(128, 5, strides=(2, 3), activation='relu', padding='same'))
+    model.add(MaxPooling2D(3, strides=2))
+    model.add(BatchNormalization())
+    model.add(Conv2D(192, 3, strides=(1, 2), activation='relu', padding='same'))
+    model.add(Conv2D(192, 3, strides=(1, 1), activation='relu', padding='same'))
+    model.add(Conv2D(128, 3, strides=(1, 1), activation='relu', padding='same'))
+    model.add(MaxPooling2D(3, strides=(1, 2)))
+    model.add(BatchNormalization())
+    model.add(Flatten())
+    model.add(Dense(256, activation='relu'))
+    model.add(Dropout(0.5))                # 两个 Dropout 防止过拟合
+    model.add(Dense(256, activation='relu'))
+    model.add(Dropout(0.5))
+    model.add(Dense(num_classes, activation='softmax'))
+    model.compile(loss='categorical_crossentropy',
+                  optimizer=keras.optimizers.Adam(lr=conf['learning_rate']),
+                  metrics=['accuracy'])
+    return model
 ```
 
-我们其次处理类别不均衡。每个交叉验证折中，先用随机过采样把训练集各类别补到当前最大类别的数量，再使用 `MixupGenerator` 把两条频谱和对应标签按比例混合。生成器还可以配合随机擦除、横向平移和翻转，让模型不依赖某个固定时间位置。正式配置使用 5 折、批大小 32、学习率 0.0001，最多训练 200 轮；每折保存验证损失最好的权重。
+> 材料里的比赛版本其实用了 SE-ResNet，AlexNet 是同一份代码里保留的可选分支。两者训练流程完全一样，这里用 AlexNet 举例，是因为它结构简单、读者更容易看懂每一层在做什么。
+
+增强方面我们做了三件事。第一，**mixup**：把两张时频图按随机比例 `λ` 混合，标签也按同样比例混合，等于让模型在「两个类之间」插值学习，能显著抑制过拟合：
 
 ```python
-from imblearn.over_sampling import RandomOverSampler
-
-# 按类别补齐样本数量，避免大类别主导损失函数
-Xidx = [[i] for i in range(len(_Xtrain))]
-y_cls = [np.argmax(one) for one in _ytrain]
-nsamples = max(y_cls.count(cls) for cls in set(y_cls))
-flat_ratio = {cls: nsamples for cls in set(y_cls)}
-Xidx_resampled, y_resampled = RandomOverSampler(
-    ratio=flat_ratio, random_state=42).fit_sample(Xidx, y_cls)
-
-# Mixup 让模型看到连续的标签组合，降低过拟合
-train_generator = MixupGenerator(
-    _Xtrain, _ytrain, alpha=1.0, batch_size=32,
-    datagen=aug_datagen)()
+class MixupGenerator():
+    def __init__(self, X_train, y_train, batch_size=32, alpha=0.2):
+        self.X_train, self.y_train = X_train, y_train
+        self.batch_size, self.alpha = batch_size, alpha
+    def __data_generation(self, batch_ids):
+        l = np.random.beta(self.alpha, self.alpha, self.batch_size)  # 混合比例
+        X_l = l.reshape(self.batch_size, 1, 1, 1)
+        y_l = l.reshape(self.batch_size, 1)
+        X1 = self.X_train[batch_ids[:self.batch_size]]
+        X2 = self.X_train[batch_ids[self.batch_size:]]
+        X = X1 * X_l + X2 * (1 - X_l)      # 两张图按比例叠加
+        y1 = self.y_train[batch_ids[:self.batch_size]]
+        y2 = self.y_train[batch_ids[self.batch_size:]]
+        y = y1 * y_l + y2 * (1 - y_l)      # 标签同样叠加
+        return X, y
 ```
+
+第二，**随机擦除**（random eraser）：在时频图上随机糊掉一块矩形，强迫模型不要只盯着某个局部特征。第三，**过采样**：用 `RandomOverSampler` 把稀有类别复制到和最多类别一样多，避免模型偷懒只预测常见类。训练时 `alpha=1.0`，并用 Keras 的生成器把 mixup 和常规增强串起来。
 
 ### 2.4 模型测试与指标报告
 
-我们最后对每个折的测试窗口进行预测。一个原始音频可能对应多个窗口，所以先按照 `idx_map` 找回原始文件，再对同一文件的多个概率向量计算几何平均。几何平均能让多个窗口共同支持的类别保持较高概率，同时减少某一个窗口偶然误判的影响。
+验证集我们按类别分层划分，并尽量只用 `manually_verified=1` 的样本做可靠评估。每个配置训练若干轮后，把 LH 和 X 两条路的预测概率取平均（集成），再按概率排序生成提交文件：
 
 ```python
-def geometric_mean_preds(_preds):
-    # 同一原始音频的多个窗口必须共同参与，不能只取某一个窗口
-    preds = _preds.copy()
-    for i in range(1, preds.shape[0]):
-        preds[0] = np.multiply(preds[0], preds[i])
-    return preds[0]
+# 两个方案各自对测试集预测，得到形状为 [n_test, 41] 的概率矩阵
+pred_lh = model_lh.predict(X_test_lh)
+pred_x  = model_x.predict(X_test_x)
 
-def get_unified_preds(preds, pred_idx, N):
-    # 按原始音频编号合并窗口，恢复到提交所需的一行一个音频
-    results = []
-    for idx in range(N):
-        this_preds = preds[np.where(pred_idx == idx)]
-        results.append(geometric_mean_preds(this_preds))
-    return np.array(results)
+# 简单平均集成：两种分辨率互相补盲
+pred = (pred_lh + pred_x) / 2.0
+
+# 多标签提交：对每条样本，把概率超过阈值的类别名用空格拼起来
+labels = df_train['label'].unique()
+rows = []
+for i, fname in enumerate(df_test.index):
+    order = np.argsort(pred[i])[::-1]          # 概率从高到低排序
+    picked = [labels[j] for j in order if pred[i][j] > 0.1]
+    if not picked:                              # 至少保留概率最高的一个
+        picked = [labels[order[0]]]
+    rows.append(' '.join(picked))
+
+submission = pd.DataFrame({'fname': df_test.index, 'label': rows})
+submission.to_csv('submission.csv', index=False)
 ```
 
-接着，我们对每个样本取概率最高的三个类别，并按 MAP@3 的规则生成提交结果。材料中的最佳方案把 LH 和 X 看作互补：LH 擅长开头的细节，X 擅长覆盖完整音频。最终对不同折、不同窗口得到的概率做几何均值集成。材料报告的最终结果为 public 0.950、private 0.917；训练集的人工核验样本准确率在不同折中约为 0.963 到 0.981，集成后的示例为 0.981。
+材料里的这套方案在排行榜上达到 **private 0.917 / public 0.950**。同场的另一个「传统机器学习」基线——用 librosa 提取 MFCC、过零率、频谱质心等手工特征再喂 XGBoost——公开榜约 **0.811**。对比两者可以看出：手工特征能快速搭出一个不错的基线，但要冲高分，还是得靠端到端的时频图 CNN 加数据增强。
+
+---
 
 ## 三、总结
 
-本文中我们完成了 Freesound Audio Tagging 的一条完整解题路线。我们首先检查了 9473 条训练记录、41 个声音类别和人工核验字段，其次通过静音裁剪、统一长度和 59 条黑名单清理不可靠音频，接着把波形转换为梅尔频谱图，用 LH 与 X 两种时间范围互补的方案训练卷积网络，并通过过采样、Mixup、随机擦除和 5 折训练改善泛化，最后把多个窗口和多个折的概率用几何均值合并，按前三名标签计算 MAP@3。
+本文中我们完成了 Freesound Audio Tagging 2018 的完整流程。我们首先用 EDA 了解数据：9,473 条训练音频、41 个类别、类别严重不均衡、音频长度不一。其次我们统一采样率、裁剪/补零到固定长度、归一化幅度，并把波形转成 log-mel 时频图。接着我们设计了 LH（高频率分辨率、只看开头）和 X（低分辨率、覆盖全片段）两套互补配置，用 AlexNet 风格 CNN 训练，并加入 mixup、随机擦除和类别过采样。然后我们把两条路的预测做集成并按概率生成多标签提交。最后这套方案拿到 private 0.917 / public 0.950，明显高于 MFCC + XGBoost 的约 0.811 基线。
 
-这个比赛说明，音频分类的效果不仅取决于网络层数，也取决于我们怎样保留时间信息、怎样处理脏数据，以及怎样把同一个声音的多个观察结果组合起来。
+这个比赛给我们最大的启发是：**声音任务的关键往往不在网络结构，而在「怎么把波形变成模型看得懂的画面」**。时频图的分辨率怎么选、看多长的片段、怎么做增强，这些决定比换一个更深的网络更有效。

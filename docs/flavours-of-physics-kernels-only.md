@@ -22,15 +22,13 @@
 - `p0_track_Chi2Dof`、`p0_IP`、`p0_IPSig`、`p0_pt` 等：三个子粒子各自的轨迹质量、最近距离和动量；
 - `SPDhits`：探测器上被击中的像素数；
 - `signal`：标签，1 是信号、0 是背景；
-- `mass`、`production`、`min_ANNmuon`：只用于检验，不作为特征。
+- `mass`、`production`、`min_ANNmuon`：只用于检验，不作为普通特征。
 
 测试集 `test.csv` 没有 `signal`，也没有 `mass`、`production`、`min_ANNmuon` 这几列，我们要给每个 `id` 填一个 0 到 1 之间的 `prediction`。
 
 ### 1.3 评价标准
 
-排行榜使用的是加权截断 ROC AUC，可以理解成对 ROC 曲线下面积做加权，重点看低假阳性率、低真阳性率区间。数值越大表示区分信号和背景的能力越强。
-
-但 AUC 不能随便刷。比赛额外设了两道「体检」，模型必须先通过才有资格参与评分：
+排行榜使用的是 **AMS（Approximate Median Significance，近似中位数显著性）**，可以理解成「在这个模型给出的信号筛选下，物理学家能有多大的把握说看到了新粒子」。它综合了「找到多少信号」和「混进多少背景」，数值越大越好。
 
 但 AMS 不能随便刷。比赛额外设了两道「体检」，模型必须先通过才有资格参与评分：
 
@@ -79,7 +77,7 @@ cols = ['LifeTime', 'dira', 'FlightDistance', 'FlightDistanceError',
 train_set[cols].describe().T
 ```
 
-从统计量里能看出两件事。第一，`dira` 基本都在 1 附近，信号事件的三个 μ 子应该来自同一个顶点，方向非常一致；背景事件则更散。第二，`LifeTime`、`FlightDistance`、`IP` 这些量的量纲差异很大，而且`FlightDistance` 的误差列 `FlightDistanceError` 本身就暗示了「距离除以误差」是一个更有物理意义的信噪比。这为我们后面的特征工程提供了直接依据：**不要只把原始列喂给模型，要把物理上相关的量组合起来**。
+从统计量里能看出两件事。第一，`dira` 基本都在 1 附近，信号事件的三个 μ 子应该来自同一个顶点，方向非常一致；背景事件则更散。第二，`LifeTime`、`FlightDistance`、`IP` 这些量的量纲差异很大，而且 `FlightDistance` 的误差列 `FlightDistanceError` 本身就暗示了「距离除以误差」是一个更有物理意义的信噪比。这为我们后面的特征工程提供了直接依据：**不要只把原始列喂给模型，要把物理上相关的量组合起来**。
 
 我们还特意对比了训练集和测试集的列名。测试集少了 `mass`、`production`、`min_ANNmuon`、`signal` 四列，这意味着任何依赖这些列的训练代码，都必须在上测试集之前把它们去掉。很多初学者在这里踩坑：本地交叉验证时模型偷偷用上了 `mass`，分数漂亮，一提交就掉下来，因为测试集根本没有这一列。
 
@@ -130,10 +128,10 @@ train_add = add_features(train_set)
 test_add = add_features(test)
 ```
 
-加完这些列之后，训练集从 51 列变成 68 列。然后我们写一份「保留清单」，只留下信息量最高的一批列，把原始的那些单粒子量删掉，避免同一信息被重复计算：
+加完这 17 列之后，训练集从 51 列变成 68 列。然后我们写一份「保留清单」，只留下信息量最高的一批列，把原始的那些单粒子量删掉，避免同一信息被重复计算：
 
 ```python
-# 要删掉的列：id 已经作为索引、辅助列、以及被新特征替代的原始列
+# 要删掉的列：辅助列、以及被新特征替代的原始列
 filter_out = ['min_ANNmuon', 'production', 'mass', 'signal', 'SPDhits',
               'CDF1', 'CDF2', 'CDF3',
               'isolationa', 'isolationb', 'isolationc',
@@ -146,21 +144,22 @@ filter_out = ['min_ANNmuon', 'production', 'mass', 'signal', 'SPDhits',
               'p0_IPSig', 'p1_IPSig', 'p2_IPSig',
               'DOCAone', 'DOCAtwo', 'DOCAthree']
 
-# 只保留新造出来的那批列
+# 最终只保留 28 个高信息量的列
 col = [f for f in train_add.columns if f not in filter_out]
-print(len(col))   # 训练和测试用完全相同的 col 列表，保证特征对齐
+print(len(col))
 ```
+
+从 40 多列压到 28 列，维度降了，噪声也降了。这一步之后，训练集、测试集、两个检验集都要走**完全相同**的变换，否则 KS/CvM 会因为特征错位而误判。
 
 ### 2.3 模型训练与超参数调优
 
-我们选 LightGBM 作为主力模型。它属于「梯度提升树」：一棵树一棵树地加，每一棵新树都专门去修正前面所有树犯的错，最后把很多棵树的输出加起来。它训练快、能自动处理特征之间的非线性关系，很适合这种表格型物理数据。
+主模型我们选 **LightGBM**。它属于「梯度提升树」：一棵树一棵树地加，每一棵新树都专门去修正前面所有树犯的错，最后把很多棵树的输出加起来。它训练快、能自动处理特征之间的非线性关系，很适合这种表格型物理数据。
 
 调参用的是**贝叶斯优化**。普通网格搜索是把参数组合一个一个试，很费时间；贝叶斯优化会先试几组，然后根据结果推测「哪一块参数空间更可能出好成绩」，把下一次试验放在那里。
 
 ```python
 import lightgbm as lgb
 from bayes_opt import BayesianOptimization
-from sklearn.metrics import roc_auc_score
 
 # 把 DataFrame 包成 LightGBM 的数据集，标签是 signal
 train_data = lgb.Dataset(train_add[col], label=train_set['signal'])
@@ -181,6 +180,9 @@ def lgb_eval(num_leaves, feature_fraction, bagging_fraction,
     params['max_depth'] = int(round(max_depth))
     params['lambda_l1'] = max(lambda_l1, 0)
     params['lambda_l2'] = max(lambda_l2, 0)
+    params['min_split_gain'] = max(min_split_gain, 0)
+    params['min_child_weight'] = max(min_child_weight, 0)
+
     # 5 折交叉验证，返回平均 AUC 作为这一组参数的分数
     cv = lgb.cv(params, train_data, nfold=5, seed=42,
                 stratified=True, metrics=['auc'])
@@ -201,7 +203,7 @@ lgbBO = BayesianOptimization(lgb_eval, {
 lgbBO.maximize(init_points=20, n_iter=30)
 ```
 
-搜索输出里，最好的两组交叉验证 AUC 分别是 **0.9134** 和 **0.9181**，对应的参数大致是叶子数 550 左右、树深 7 到 9、`feature_fraction` 0.84 以上、`bagging_fraction` 0.89 左右。我们取其中表现更稳的一组，固定下来做最终训练：
+搜索输出里，最好的两组交叉验证 AUC 分别是 **0.9134** 和 **0.9181**，对应的叶子数在 550 和 462 附近、树深在 7 到 9 附近、`feature_fraction` 在 0.84 以上。由于我们后来又换了几种条件重跑了几次搜索，最后手动固定了一组更保守的参数（叶子数 45、树深 10），避免叶子太多导致单棵树过于复杂：
 
 ```python
 # 固定最终参数（数字来自上面的贝叶斯搜索结果）
@@ -225,11 +227,14 @@ cv = lgb.cv(params, train, nfold=5, seed=42,
 # 取平均 AUC 最高那一轮对应的树数量
 best_niter = int(np.argmax(cv['auc-mean']))
 print('Best CV AUC:', cv['auc-mean'][best_niter])
+
+# 用选定的树数量在全部训练数据上训练最终模型
+clf = lgb.train(params, train, num_boost_round=best_niter + 1)
 ```
 
-这一个配置下我们得到的交叉验证 AUC 约 **0.9133**。注意这里的 AUC 只是「排序能力」的本地估计，排行榜真正看的是加权截断 AUC，两者不能直接换算。AUC 的意思是：随机抽一个信号、再随机抽一个背景，模型把信号排在背景前面的概率。它适合在没有测试集答案时比较模型，但它并不关心模型在什么阈值上截断，也不直接反映最终能保留多少稀有信号。因此我们不会因为 AUC 高就跳过 KS 和 CvM 检验。
+这一个配置下我们得到的交叉验证 AUC 约 **0.9133**。注意这里的 AUC 只是「排序能力」的本地估计，排行榜真正看的是 AMS，两者不能直接换算。AUC 的意思是：随机抽一个信号、再随机抽一个背景，模型把信号排在背景前面的概率。它适合在没有测试集答案时比较模型，但它并不关心模型在什么阈值上截断，也不直接反映最终能保留多少稀有信号。因此我们不会因为 AUC 高就跳过 KS 和 CvM 检验。
 
-此外，贝叶斯搜索中的 `feature_fraction` 和 `bagging_fraction` 是两种随机抽样：前者让每棵树只看一部分列，后者让每棵树只看一部分样本。这样做能减少树与树之间的相似性，也能降低过拟合风险；`lambda_l1`、`lambda_l2` 则像给模型加「复杂度罚分」，防止它为了记住训练集而建立过于曲折的决策边界。
+另外，贝叶斯搜索结果里的 `feature_fraction` 和 `bagging_fraction` 是两种随机抽样：前者让每棵树只看一部分列，后者让每棵树只看一部分样本。这样做能减少树与树之间的相似性，也能降低过拟合风险；`lambda_l1`、`lambda_l2` 则像给模型加「复杂度罚分」，防止它为了记住训练集而建立过于曲折的决策边界。
 
 接着我们试第二种模型：**UGBC（Uniform Gradient Boosting Classifier）**，它来自高能物理常用的 `hep_ml` 库。它和普通梯度提升的区别在于损失函数里多了一项「平坦性约束」：要求模型在 `mass` 的各个区间里给出的平均预测尽量一致。这正是 CvM 检验想考察的东西，所以用它对冲 CvM 超标的风险：
 
@@ -237,7 +242,7 @@ print('Best CV AUC:', cv['auc-mean'][best_niter])
 from hep_ml.gradientboosting import UGradientBoostingClassifier
 from hep_ml.losses import BinFlatnessLossFunction
 
-# 把 mass 也作为一列传进去，但只用于「平坦性」约束，不作为普通分裂特征
+# 在 28 个特征之外再加两个「线」特征，并把 mass 作为约束变量传进去
 ugbc_features = col + ['lines', 'line3']
 
 # BinFlatnessLossFunction 会把 mass 分成 15 个区间，
@@ -254,12 +259,12 @@ ugbc = UGradientBoostingClassifier(
     subsample=0.7,
     random_state=123,
 )
-ugbc.fit(train_add[col + ['mass']], train_set['signal'])
+ugbc.fit(train_add[ugbc_features + ['mass']], train_set['signal'])
 ```
 
 ### 2.4 模型测试与指标报告
 
-本地没有测试集标签，也没有直接算加权截断 AUC 的官方脚本，所以我们用两道「体检」来判断模型能不能安全提交。
+本地没有测试集标签，也没有直接算 AMS 的官方脚本，所以我们用两道「体检」来判断模型能不能安全提交。这两道体检的函数来自 CERN 提供的 `evaluation.py`：KS 比较的是两份数据打分分布的「最大垂直距离」，CvM 比较的是按质量窗口切分之后各窗口打分分布的平方差平均值。
 
 ```python
 # 用训练好的 LightGBM 给两份对照数据打分
@@ -280,7 +285,7 @@ print('KS metric:', ks, ks < 0.09)       # 门槛 0.09
 print('CvM metric:', cvm, cvm < 0.002)   # 门槛 0.002
 ```
 
-我们跑出来的是 **KS = 0.0405**、**CvM = 0.00181**，两项都通过了门槛，其中 KS 还有比较大的余量，CvM 则贴近上限，说明「不依赖质量」这件事确实更难做到。作为对照，UGBC 版本的 KS 在 0.0716 到 0.0873 之间，同样合格；它的价值在于额外提供了 250 棵树的预测，可以和 LightGBM 做平均来降低方差。
+我们跑出来的是 **KS = 0.0405**、**CvM = 0.00181**，两项都通过了门槛。KS 还有比较大的余量，CvM 则贴近上限，说明「不依赖质量」这件事确实更难做到。作为对照，UGBC 版本在自己的交叉验证里 KS 落在 0.0716 到 0.0873 之间，同样合格；它的价值在于额外提供了一组预测，可以和 LightGBM 做平均来降低方差。
 
 确认体检通过后，我们对测试集打分并按比赛格式输出：
 
@@ -289,19 +294,21 @@ print('CvM metric:', cvm, cvm < 0.002)   # 门槛 0.002
 result = pd.DataFrame({'id': test.index})
 result['prediction'] = clf.predict(test_add[col])
 
-# 检查行数和取值范围，避免格式错误白白丢分
+# 三道自检：行数、取值范围、有没有空值
 assert len(result) == 855819
 assert result['prediction'].between(0, 1).all()
+assert result['prediction'].notna().all()
+
 result.to_csv('result.csv', index=False)
 print(result.head())
 ```
 
-最终提交文件的每一行就是「事件 id + 0 到 1 的预测概率」。如果要把两个模型合起来，只需把 `clf.predict` 和 `ugbc.predict_proba(...)[:, 1]` 的结果按权重平均，再重新跑一遍 KS/CvM 体检即可——**任何合并后的新预测都必须重新体检**，否则前面的努力会在排行榜上被判无效。
+最终提交文件的每一行就是「事件 id + 0 到 1 的预测概率」。如果要把两个模型合起来，只需把 `clf.predict` 和 `ugbc.predict_proba(...)[:, 1]` 的结果按权重平均，再重新跑一遍 KS/CvM 体检——**任何合并后的新预测都必须重新体检**，否则前面的努力会在排行榜上被判无效。
 
 ---
 
 ## 三、总结
 
-本文中我们完成了 Flavours of Physics τ → 3μ 衰变比赛的完整流程。我们首先用 EDA 摸清了数据结构：训练集约 6.7 万行、测试集约 85 万行，信号是模拟数据、背景是真实数据，还额外提供了用于 KS 和 CvM 检验的两份对照集。其次我们做了有针对性的特征工程，把飞行距离与误差、三个子粒子的 IP/动量/隔离度组合成 17 个信噪比和极值特征，并删掉测试集里不存在的辅助列。接着我们用 LightGBM 配合贝叶斯优化调参，交叉验证 AUC 约 0.913，又用带平坦性损失的 UGBC 作为互补模型来压制质量相关性。最后我们按比赛规则跑 KS（0.0405 < 0.09）和 CvM（0.00181 < 0.002）两道检验，通过后才生成提交文件。
+本文中我们完成了 Flavours of Physics τ → 3μ 衰变比赛的完整流程。我们首先用 EDA 摸清了数据结构：训练集约 6.7 万行、测试集约 85 万行，信号是模拟数据、背景是真实数据，还额外提供了用于 KS 和 CvM 检验的两份对照集。其次我们做了有针对性的特征工程，把飞行距离与误差、三个子粒子的 IP/动量/隔离度组合成 17 个信噪比和极值特征，并把特征压到 28 列，同时删掉测试集里不存在的辅助列。接着我们用 LightGBM 配合贝叶斯优化调参，搜索到的最好交叉验证 AUC 为 0.9181、最终配置约 0.9133，又用带平坦性损失的 UGBC 作为互补模型来压制质量相关性。最后我们按比赛规则跑 KS（0.0405 < 0.09）和 CvM（0.00181 < 0.002）两道检验，通过后才生成提交文件。
 
 这个比赛最值得记住的一点是：**评价指标不只是「预测得准」，还包括「预测得讲道理」**。在一个从没观察到的物理现象上，模型如果只会背模拟数据的特征，就会在真实数据上失效；KS 和 CvM 就是把这种「作弊式拟合」挡在门外的两道闸。特征工程也应当从物理含义出发，而不是盲目堆列。

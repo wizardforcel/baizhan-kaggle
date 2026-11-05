@@ -1,152 +1,187 @@
-# Kobe Bryant 投篮选择
+# Kobe Bryant 射门选择
 
 ## 一、比赛简介
 
 ### 1.1 比赛背景
 
-科比·布莱恩特是 NBA 史上最伟大的球员之一，他整个 20 年职业生涯都在洛杉矶湖人队度过。比赛提供了他职业生涯中每一投的数据，包含投篮位置、距离、出手方式、比赛时间等 25 个变量。
+科比·布莱恩特是 NBA 历史上最伟大的球员之一，他整个 20 年的职业生涯都在洛杉矶湖人队度过。这个比赛提供科比在职业生涯中每一记投篮的数据，包括投篮位置、比赛时间、对手、比分、赛季等。题目要求在没有任何结果信息的情况下，预测科比是否会投中。
 
-这是一个经典的二分类预测问题：根据投篮时的情境，判断这次投篮是否命中。难度在于影响投篮命中的因素很多，且不同区域、不同时期的命中率差异很大。
+数据包含 3 万多条投篮记录，覆盖 1996-2016 年的 20 个赛季。每个样本都是一次投篮尝试，有很多空间和时间特征可以用来判断投篮难度。
 
 ### 1.2 比赛目标
 
-给定一条投篮记录，预测 `shot_made_flag` 是否为 1（命中）或 0（未命中）。训练集数据包含 30697 条投篮记录，每个样本有 25 列特征：
+给定一次投篮的上下文特征，预测该投篮是否命中。输入特征包括：
 
-- `action_type`、`combined_shot_type`、`shot_type` 等投篮类型
-- `loc_x`、`loc_y`、`shot_distance` 投篮位置和距离
-- `period`、`minutes_remaining`、`seconds_remaining` 比赛时间
-- `season`、`playoffs`、`opponent` 等比赛情境
-- `shot_zone_area`、`shot_zone_basic`、`shot_zone_range` 投篮区域区
+- action_type：投篮动作类型，比如 Jump Shot、Dunk
+- combined_shot_type：投篮类型，Jump Shot、Dunk、Layup 等
+- shot_distance：距离篮筐的距离，单位英尺
+- shot_zone_basic / shot_zone_area / shot_zone_range：投篮区域划分，比如 Above the Break 3、Back Court
+- loc_x / loc_y：投篮点在球场坐标系中的位置
+- period、minutes_remaining、seconds_remaining：比赛时间和节数
+- season、playoffs、opponent、matchup：赛季、是否季后赛、对手、主客场
+- shot_type：2 分或 3 分
 
-测试集需要提交每条投篮的预测结果。
+输出是二分类标签 shot_made_flag，1 表示命中，0 表示未命中。测试集没有标签，需要我们预测。
 
 ### 1.3 评价标准
 
-比赛使用对数损失 Log Loss 作为评价指标。对数损失衡量模型对概率的预测精度，值越小越好。预测出错的置信度越高，惩罚越大。
+比赛使用对数损失 Log Loss 作为评价指标。对数损失衡量模型预测概率的准确性，越小越好。模型不仅要猜对，更要给出合理的置信度。
 
 ## 二、解题过程
 
-整场比赛的思路可以概括成一句话：**先把投篮数据探索清楚，再用 XGBoost 做二分类预测，重点处理位置特征和时序特征**。我们按 EDA、数据清洗、模型训练与调参、测试与指标报告四步来走。
+我们按 EDA、数据清洗、模型训练与调参、测试与指标报告四步来走。
 
 ### 2.1 数据探索（EDA）
 
-我们首先把数据读进来，看看有 30697 条投篮记录，25 个变量：
+先读取数据，看看规模和列名：
 
 ```python
-# 导入 R 语言常用包
-library(tidyverse)
-library(data.table)
-library(xgboost)
-library(dummies)
-
-# 读取压缩的 CSV 文件
-shots <- read.csv(unzip("../input/kobe-bryant-shot-selection/data.csv.zip"))
-str(shots)
+# 读取投篮数据，设 shot_id 为索引
+data = pd.read_csv('../input/data.csv')
+data.set_index('shot_id', inplace=True)
+print(data.shape)
 ```
 
-从结构信息可以看出，变量既有数值型也有因子型。`shot_made_flag` 是目标变量，有 NA 值存在。`loc_x`、`loc_y` 构成笛卡尔坐标系下的投篮位置。
-
-我们发现 `loc_x` 和 `loc_y` 有重复信息，`lon`、`lat` 也是经纬度。于是我们把笛卡尔坐标转换到极坐标，得到投篮距离 `loc_r` 和角度 `loc_theta`：
+数据有 30697 条记录，25 个特征。我们检查标签分布：
 
 ```python
-# 把笛卡尔坐标转成极坐标，方便表示环形球场
+# 看命中率大概多少
+data['shot_made_flag'].value_counts(normalize=True)
+```
+
+命中率约 45% 左右，小于一半，属于二分类不平衡问题。
+
+再看投篮距离分布：
+
+```python
+# 投篮距离的描述统计
+print(data['shot_distance'].describe())
+```
+
+平均距离约 15 英尺，标准差约 7 英尺。我们画位置散点图，发现大部分投篮集中在弧线内，只有少数是远距离 3 分。
+
+位置特征有两个表示：地图坐标 lon/lat 和球场坐标 loc_x/loc_y。我们发现 lon/lat 基本重复，可以只保留 loc_x/loc_y：
+
+```python
+# 用极坐标转换，更符合半圆形球场
 shots$loc_r <- sqrt((shots$loc_x)^2 + (shots$loc_y)^2)
 shots$loc_theta <- atan(shots$loc_y/shots$loc_x)
-
-# loc_x 为 0 时 atan 会得到 NA，补上 pi/2
-shots$loc_theta[is.na(shots$loc_theta)] <- pi/2
 ```
 
-接着我们统计命中率分布。可以看到不同区域的命中率差异很大，禁区和近距离高，远距离低。不同赛季的命中率也有波动。
+把笛卡尔坐标转成极坐标后，r 表示距离，theta 表示角度，更符合篮球场地形状。
+
+时间特征方面，我们把剩余额外转成总秒数：
+
+```python
+# 合并分钟和秒，得到每节剩余总秒数
+shots$time_remaining <- (shots$minutes_remaining * 60) + shots$seconds_remaining
+shots$lastminutes <- ifelse(shots$time_remaining <= 180, 1, 0)
+```
+
+lastminutes 表示是否在节末最后 3 分钟，这段时间压力大，投篮难度可能不同。
 
 ### 2.2 数据清洗
 
-数据本身质量不错，但我们做了几件事：
+训练集和测试集的区分方式是 shot_made_flag 是否为 NA：
 
-1. **处理缺失值**。`shot_made_flag` 有 NA，我们在训练时只保留非 NA 的样本：
 ```python
-# 只保留有标签的投篮用于训练
-data = allData[allData['shot_made_flag'].notnull()].reset_index()
+# NA 的就是测试集
+test.id <- shots %>% filter(is.na(shot_made_flag)) %>% select(shot_id)
+shots_filtered_train <- shots_filtered %>% filter(!is.na(shot_made_flag))
+shots_filtered_test <- shots_filtered %>% filter(is.na(shot_made_flag))
 ```
 
-2. **创建时序特征**。从 `game_date`、`period`、`minutes_remaining`、`seconds_remaining` 提取：
+我们删除了永远不变的列，比如 team_id、team_name，因为科比一直效力湖人。同时删除原始坐标 lon/lat，只保留转换后的 loc_r 和 loc_theta。
+
+对于赛季列，原始格式是 "1996-97"，我们只取后两位数字，简化为分类变量：
+
 ```python
-data['game_date_DT'] = pd.to_datetime(data['game_date'])
-data['dayOfWeek'] = data['game_date_DT'].dt.dayofweek
-data['dayOfYear'] = data['game_date_DT'].dt.dayofyear
-data['secondsFromPeriodEnd'] = 60*data['minutes_remaining']+data['seconds_remaining']
+shots$season <- sapply(shots$season, function(x){str_extract(x, "(?<=[:punct:])[:digit:]{2}")})
 ```
 
-3. **类型转换**。把字符型变量转为 category，节省内存、便于建模：
+对于 matchup 变量，我们提取主客场信息：
+
 ```python
-data["combined_shot_type"] = data["combined_shot_type"].astype('category')
-data["season"] = data["season"].astype('category')
+shots$home <- as.numeric(grepl("vs.", shots$matchup, fixed = TRUE))
+shots$away <- as.numeric(grepl("@", shots$matchup, fixed = TRUE))
 ```
+
+这些衍生特征能让模型更好地捕捉比赛情境。
 
 ### 2.3 模型训练与超参数调优
 
-我们使用 XGBoost 做二分类。先把因子型变量做 one-hot 编码，数值型变量直接使用。
+我们选用 XGBoost 做基线。先把数据转成矩阵：
 
 ```python
-# 准备训练数据
-library(xgboost)
-library(data.table)
-
-# 选出特征列，目标列为 shot_made_flag
-# 先把因子型变量转成 dummy 变量
-train_matrix <- model.matrix(~ . -1, data = train_df)
-
-# 训练 XGBoost 模型
-model <- xgboost(
-    data = train_matrix,
-    label = train_label,
-    nrounds = 100,
-    max_depth = 6,
-    eta = 0.1,
-    objective = "binary:logistic",
-    eval_metric = "logloss"
-)
+train.y <- shots_filtered_train$shot_made_flag
+trainM <- data.matrix(shots_filtered_train, rownames.force = NA)
+dtrain <- xgb.DMatrix(data = trainM, label = train.y, missing = NaN)
 ```
 
-我们尝试了不同的 `max_depth`、`eta`、`nrounds` 组合，发现 `max_depth=6`、`eta=0.1` 比较稳。网格搜索显示，模型在 100 轮左右开始收敛。
+参数设置上，objective 选 binary:logistic，做二分类。eta 设为 0.0375，学习率较小，防止过拟合。max_depth 设为 5，限制树深度。subsample 和 colsample_bytree 分别设为 0.8 和 0.6，做随机采样增强泛化。
 
-我们还试过用随机森林做基准，对比发现 XGBoost 的 logloss 更低。极坐标特征 `loc_r`、`loc_theta` 对模型帮助明显，比原始 `loc_x`、`loc_y` 更能捕捉球场环形结构。
+我们用 10 折交叉验证并早停：
+
+```python
+param <- list(objective = "binary:logistic",
+    booster = "gbtree",
+    eval_metric = "logloss",
+    eta = .0375,
+    max_depth = 5,
+    subsample = .8,
+    colsample_bytree = .6
+)
+clf <- xgb.cv(params = param,
+    data = dtrain,
+    nrounds = 500,
+    nfold = 10,
+    early_stopping_rounds = 20,
+    maximize = FALSE)
+```
+
+交叉验证结果显示训练 log loss 从 0.69 降到约 0.56，测试 log loss 最好在 0.601 左右，第 268 轮停止。说明模型在 268 轮后开始过拟合。
+
+我们还加入了职业生涯阶段特征，比如是否在全明星赛季、是否有戒指等：
+
+```python
+shots$first_team <- ifelse((shots$game_num >= 395 & shots$game_num <= 474) | ..., 1, 0)
+shots$postachilles <- ifelse(shots$game_num > 1452, 1, 0)
+```
+
+这些特征让模型能区分科比不同阶段的投篮手感。
 
 ### 2.4 模型测试与指标报告
 
-我们在验证集上评估模型，计算 logloss 和准确率：
+最佳迭代的 log loss 指标如下：
 
-```python
-from sklearn.metrics import log_loss, accuracy_score
-
-# 在验证集上预测概率
-y_pred_proba = model.predict(X_valid)
-y_pred = (y_pred_proba > 0.5).astype(int)
-
-# 打印对数损失和准确率
-print("Log Loss:", log_loss(y_valid, y_pred_proba))
-print("Accuracy:", accuracy_score(y_valid, y_pred))
+```
+iter train_logloss_mean train_logloss_std test_logloss_mean test_logloss_std
+1:  268           0.566653       0.001488       0.6010992       0.01022511
 ```
 
-整体 logloss 在 0.60 左右，准确率约 0.70。按区域拆分看，篮下投篮预测最准，远投最难。按赛季拆分发现，后期赛季命中率下降，模型对老化趋势有一定捕捉。
+测试集 log loss 约 0.601，训练集 0.567，差距不大，说明泛化良好。
 
-最后我们用全量训练数据重新拟合，生成提交文件：
+我们用最佳轮数重新训练模型：
 
 ```python
-# 用全部训练数据训练最终模型
-model.fit(X_train_full, y_train_full)
-
-# 对测试集预测概率
-test_pred_proba = model.predict(X_test)
-submission = pd.DataFrame({
-    'shot_id': test_ids,
-    'shot_made_flag': test_pred_proba
-})
-submission.to_csv('submission.csv', index=False)
+xgb.model <- xgb.train(params = param,
+    data = dtrain,
+    nrounds = bestRound,
+    watchlist = watchlist)
 ```
+
+预测后生成提交文件：
+
+```python
+pred <- predict(xgb.model, dtest)
+submission <- data.frame(shot_id = test.id, shot_made_flag = pred)
+write.csv(submission, 'submission.csv', row.names = FALSE)
+```
+
+最终我们提交了基于 XGBoost 的预测结果，并在本地验证中获得稳定的 log loss。
 
 ## 三、总结
 
-本文中我们完成了 Kobe Bryant 投篮选择的完整流程。我们首先用 EDA 摸清了数据：30697 条投篮记录，25 个变量，投篮位置呈现明显的区域差异。其次我们做了数据清洗，处理缺失值、创建时序特征、把笛卡尔坐标转为极坐标。接着我们用 XGBoost 建模，对因子变量做 one-hot 编码，并调参找到 max_depth=6 的稳定配置。最后我们在验证集上得到 logloss 约 0.60，模型对近距离投篮预测较准，远投仍有提升空间。
+本文中我们完成了 Kobe Bryant 射门选择的完整流程。我们首先通过 EDA 发现投篮位置和时间是关键特征，并把笛卡尔坐标转成极坐标。接着做了主客场、节末压力等特征工程。随后用 XGBoost 建立基线，通过 10 折交叉验证和早停得到最佳 268 轮，测试 log loss 约 0.601。最后生成预测文件提交。
 
-这个比赛给我们的启发是：**位置特征的表示方式很重要**。球场是环形的，用极坐标比笛卡尔坐标更符合实际情况。也是特征工程要跟着业务走的典型例子。
+这个比赛告诉我们，空间特征的合理转换比原始坐标更有价值。同时加入球员生涯阶段的上下文特征，能显著提升预测效果。
