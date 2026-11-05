@@ -31,6 +31,18 @@ metrics.apk(actual, [4,2,3,5,1], 5)   # 0.2
 
 MAP@5 就是所有测试搜索的 AP@5 再取平均。它同时惩罚「没命中」和「命中但排太后」，满分 1.0，越高越好。
 
+当一次搜索的成交簇有多个时，计算规律相同：所有答案都在前几名的，即使顺序换来换去也照样满分，但一旦被挤到后面就开始掉分：
+
+```python
+actual = [1, 2]
+metrics.apk(actual, [1, 2, 3, 4, 5], 5)   # 两个答案都在前三 → 1.0
+metrics.apk(actual, [2, 1, 3, 4, 5], 5)   # 顺序调换不惩罚 → 1.0
+metrics.apk(actual, [3, 2, 1, 4, 5], 5)   # 一个被挤到第 3 → 0.583
+metrics.apk(actual, [4, 2, 3, 5, 1], 5)   # 排太后 → 0.45
+```
+
+这解释了为什么很多提交把「最热门的簇」排在前面：MAP@K 对「答案是否落在前 5」高度敏感，热门兜底能稳定地命中一两个答案，比追求完美排序稳妥得多。
+
 ---
 
 ## 二、解题过程
@@ -56,6 +68,21 @@ data['hotel_cluster'].value_counts().plot.bar()
 # 画出来像一条往下掉的幂律尾巴：
 # 少数热门簇占了大部分点击，大部分簇无人问津
 ```
+
+如果不想只取前 N 行、而是想抽到「特定用户」的子集，可以用**分块迭代读取**——把大文件按每 1000 行一块地读，边读边筛，最后拼起来：
+
+```python
+# 只读 user_id 一列就够采样了，省内存
+users = pd.read_csv(train_path, usecols=['user_id'])['user_id'].unique()
+select_users = np.random.choice(users, 100000, replace=False)
+
+# 分块读整个大文件，只保留这些用户的行
+iter_csv = pd.read_csv(train_path, iterator=True, chunksize=1000)
+select = pd.concat([chunk.loc[chunk.user_id.isin(select_users)]
+                    for chunk in iter_csv])
+```
+
+这样既不用把 3767 万行全部载入内存，又能拿到一个「覆盖特定用户群」的代表性子集来做画图、分布分析。
 
 接下来我们用 **卡方检验（chi2）** 粗筛，看哪些离散特征和酒店簇相关。办法是先把类别列独热（get_dummies），再对每列算卡方得分，取 Top-100 特征统计它们的来源：
 
