@@ -70,6 +70,15 @@ df = df.drop(columns=drop_unary_cols + target_cols, errors="ignore")
 df_test = df_test.drop(columns=drop_unary_cols + target_cols, errors="ignore")
 ```
 
+删列之后我们可以做一个极简的「特征价值」检查：按相关性分数分两桶（>0 有互动 vs =0 没互动），看每个特征在两组里的均值差多少。差得越明显，这个特征越能区分「值不值得排前面」：
+
+```python
+# 按 target 是否 > 0 分组，比较各报价特征的平均值
+df.groupby(df["target"] > 0).mean()
+```
+
+结果符合直觉：`price_usd`（价格）、`prop_review_score`（评分）、`prop_starrating`（星级）这两组均值差很明显，而 `comp7_rate` 这类缺失率极高的比价特征几乎分不开用户——它们就是我们后来删除或弱化的对象。
+
 ### 2.2 数据清洗与特征工程
 
 洗掉无信息和泄漏列之后，我们做**时间特征**和**缺失数特征**两件事：
