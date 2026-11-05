@@ -228,6 +228,8 @@ print("missing prediction:", np.isnan(valid_prob).sum())
 for threshold in [0.2, 0.5, 0.8]:
     predicted_label = (valid_prob >= threshold).astype(int)
     print(threshold, predicted_label.mean())
+    # 阈值越低，被判为正例的样本越多
+    print("positives:", int(predicted_label.sum()))
 ```
 
 然后我们为测试表执行同样的预处理和合并，使用全量训练数据训练最终模型。材料中的提交思路是保留测试活动的 `activity_id`，把预测值写入 `outcome` 列，再保存为 CSV。这里的预测值是概率，不是手工设定的标签；这样既符合 AUC 的排序要求，也保留了业务方按风险或潜力排序的空间。
