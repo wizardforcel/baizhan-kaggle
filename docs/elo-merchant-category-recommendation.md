@@ -110,6 +110,8 @@ def reduce_memory_usage(df, verbose=True):
     return df
 ```
 
+数据清洗还有一个环节是**异常值**的处理。材料里有专门的 notebook 研究 `purchase_amount`（交易金额）的极端值：单笔金额极大、甚至报表里出现无穷大（inf）的情况。这类极值对 LightGBM 树模型影响有限（树只是把样本分到不同桶里），但我们心里要有数：**金额最大的那几笔会把某张卡的 `purchase_amount_sum` 这类聚合统计量拉得特别高**，直接喂给深度网络（材料里的 Deep AutoViML、Fastai 方案）时会撑爆数值。所以我们的主线模型不做截断，而深度路线的作者们大多选择直接删掉含 inf 的行。
+
 ### 2.3 模型训练与超参数调优
 
 清洗之后，我们做全场比赛最重要的一步：**按 `card_id` 分组，把流水聚合成几十个统计量**。`purchase_amount` 做 sum/median/max/min/std，`installments`（分期数）做 sum/median，城市、商户、子行业做 nunique（去重计数），还把 `purchase_date` 转成时间戳后求 max/min/极差（ptp），代表用户消费的活跃时间跨度：
@@ -197,6 +199,8 @@ for fold_, (trn_idx, val_idx) in enumerate(folds.split(xtrain.values, ytrain.val
 ```
 
 调参日志里能看到搜索轨迹：例如 `feature_fraction` 在 0.4~0.7 之间来回试探，最后稳定在 0.5；`num_leaves` 的小叶数版本（11 左右）反而在部分折上更稳。这说明**超参数不是越大越好**，越小的模型树泛化越好。
+
+最后提一个数据里的隐藏坑：流水表里有 `month_lag` 这个字段，表示「这笔交易发生在某个参考月份之前的第几个月」。这个参考月份怎么定义，材料里有人专门发帖研究过（标题就叫 Resolving mystery of reference date），因为它的取值直接暗示了「老卡主」和「新店买手」这种生意模式的区别。我们把它当普通数值做了 min/max 聚合，等于把「这张卡最早和最近什么时候消费」交给模型自己判断，而不是亲手去拆解参考日期的秘密。
 
 ### 2.4 模型测试与指标报告
 
