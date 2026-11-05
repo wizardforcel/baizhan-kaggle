@@ -92,9 +92,11 @@ def build_features(df, state_stats=None, is_train=True):
     return d, state_stats
 ```
 
-这段代码把邮编拆成 1、2、3 位地理层级，并用州层级的中位数做分层填补，避免用未来目标信息泄露。随后我们补充了微观经济指标：把年收入转成月收入，计算租金收入比 RentToIncomeRatio、affordability 缓冲 AffordabilityBuffer、剩余可支配收入 ResidualDisposableIncome。还计算了家庭构成指标 ChildrenPerAdult、HouseholdCrowding、MultigenHouseholdIndex 以及空间相对价格 Rent_to_StateRent 等。最终训练特征从 18 维扩展到 45 维，测试集 42 维。
+这段代码把邮编拆成 1、2、3 位地理层级，并用州层级的中位数做分层填补，避免用未来目标信息泄露。我们没有直接把缺失的 RentIndex 全部填成一个固定常数，因为不同州和不同地区的租金水平差异很大；按州回退能保留一些空间差异，同时保留 `RentIndex_IsMissing` 让模型知道这一行原来是否缺失。随后我们补充了微观经济指标：把年收入转成月收入，计算租金收入比 RentToIncomeRatio、affordability 缓冲 AffordabilityBuffer、剩余可支配收入 ResidualDisposableIncome。还计算了家庭构成指标 ChildrenPerAdult、HouseholdCrowding、MultigenHouseholdIndex 以及空间相对价格 Rent_to_StateRent 等。最终训练特征从 18 维扩展到 45 维，测试集 42 维。
 
-为了避免时空泄漏，我们用 GroupKFold 按 ZIP 分组做交叉验证，确保同一 ZIP 的不同月份不会同时出现在训练和验证里。
+这些特征分别回答了几个直观问题：房租占收入多少？扣除住房开销后还剩多少？一个家庭是否拥挤？这个 ZIP 的租金相对本州平均水平是高还是低？把原始字段转成这些比率和差值后，树模型不必自己从多个列中反复寻找关系。我们同时把 Zip 拆成前缀，而不是把完整邮编当作一个简单的类别，这样 New ZIP 仍然能通过相同的前缀获得区域信息。
+
+为了避免时空泄漏，我们用 GroupKFold 按 ZIP 分组做交叉验证，确保同一 ZIP 的不同月份不会同时出现在训练和验证里。如果把同一个 ZIP 的 5 月放在训练集、6 月放在验证集，模型可能只是记住 ZIP 的身份，验证分数会看起来很好，却无法代表 New ZIP 的真正效果。因此分组切分虽然让验证更难，但更接近比赛的实际测试分布。
 
 ### 2.3 模型训练与超参数调优
 接着我们建立双机制模型。Regime A 负责 Seen ZIP，利用月度惯性做自回归漂移补偿。
@@ -123,9 +125,9 @@ for tr, va in kf.split(X_delta):
     oof_delta[va] = m.predict(X_delta.iloc[va])
 ```
 
-该 Ridge 模型的 5 折外样本 RMSE 为 1.2002，比零漂移基线 1.2524 降低 0.0522 个百分点。加权后对整体评分的贡献约 0.240。
+该 Ridge 模型的 5 折外样本 RMSE 为 1.2002，比零漂移基线 1.2524 降低 0.0522 个百分点。加权后对整体评分的贡献约 0.240。这个改进看似不大，但因为 Seen 部分的绝对数值本来就小（大部分 ZIP 两个月之间只变化一两点），所以想要把 0.05 的差距再压低，就必须依赖稳定的月度特征。我们在第 2.2 节构造的租金变化、房主比例变化和样本量变化，在这里刚好派上用场：城市在加租、房主结构在变、抽样规模在变，都会推动可负担比例发生移动。
 
-Regime B 用来处理 New ZIP。我们训练 LightGBM、CatBoost、XGBoost 和 Tabular ResNet 四个模型，并在每折上做贝叶斯平滑的目标编码。
+Regime B 用来处理 New ZIP。因为 New ZIP 完全没有历史值可用，我们只能依赖它的地理与人口特征去推断。我们训练 LightGBM、CatBoost、XGBoost 和 Tabular ResNet 四个模型，并在每折上做贝叶斯平滑的目标编码。
 
 ```python
 import lightgbm as lgb
@@ -175,10 +177,10 @@ oof_blend = P @ opt_w
 blend_rmse = np.sqrt(mean_squared_error(y_train, oof_blend))
 ```
 
-最优权重为 XGBoost 0.6832、LightGBM 0.2790、Tabular ResNet 0.0378、CatBoost 0.0000。融合后的 RMSE_New 为 12.7415，优于任一单模型。
+最优权重为 XGBoost 0.6832、LightGBM 0.2790、Tabular ResNet 0.0378、CatBoost 0.0000。融合后的 RMSE_New 为 12.7415，优于任一单模型。这个权重组合说明，在 New ZIP 这种空间外预测问题上，XGBoost 的泛化能力最强，LightGBM 起到补充作用，而 CatBoost 被优化器完全压掉了权重。我们并不需要强行让四个模型都参与融合，融合的权重本来就允许某些模型趋近于零。凸优化融合的优势在于，它只在这个权重空间里寻找使验证误差最小的点，权重非负且和为 1，结果容易解释，也不会出现过拟合性的极端值。
 
 ### 2.4 模型测试与指标报告
-然后我们在测试集上按地理状态路由预测。Seen ZIP 用 Regime A 的 Ridge 漂移模型，以 6 月实际值为锚点加上预测漂移；New ZIP 用融合后的 Regime B 模型。所有预测都夹到 0 到 100 之间。
+然后我们在测试集上按地理状态路由预测。Seen ZIP 用 Regime A 的 Ridge 漂移模型，以 6 月实际值为锚点加上预测漂移；New ZIP 用融合后的 Regime B 模型。所有预测都夹到 0 到 100 之间。路由这一步是整个方案的关键：如果把所有测试样本交给同一个模型，模型在 Seen ZIP 上记不住上个月的值，在 New ZIP 上又缺少历史锚点，两边都会吃亏。分而治之之后，Seen 部分能吃满时间惯性的红利，New 部分则能全力做空间泛化。
 
 ```python
 is_seen = test_df['Zip'].isin(seen_zips).values

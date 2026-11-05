@@ -101,8 +101,8 @@ fe_train = feat_eng(train.copy())
 fe_test = feat_eng(test.copy())
 target = 'Choice'
 predictors = fe_train.columns.values.tolist()[1:]
-# 5 折分层交叉验证
-skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=1)
+# 20 折分层交叉验证
+skf = StratifiedKFold(n_splits=20, shuffle=True, random_state=2019)
 ```
 
 超参数优化完成后，我们把训练流程封装为 20 折交叉验证的集成。每一折训练一个 LightGBM 模型，使用早期停止防止过拟合，并保存验证集的 out-of-fold 预测用于估计 CV AUC。测试集预测取 20 折平均，降低方差。
