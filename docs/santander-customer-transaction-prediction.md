@@ -4,250 +4,237 @@
 
 ### 1.1 比赛背景
 
-这是西班牙桑坦德银行（Santander）在 2019 年举办的一场二分类比赛。银行想知道：**某位客户在接下来的时间里，会不会发生一笔交易？** 如果能把可能交易的客户提前找出来，银行就可以更精准地做营销，把有限的资源和优惠投给最可能响应的人。
+Santander 银行想预测：哪些客户在未来会完成一笔特定交易。比赛给每个客户 200 个匿名数值特征，特征名统一叫 `var_0` 到 `var_199`，没有业务含义，也不告诉你哪个变量代表余额、收入还是交易次数。训练集有 20 万行，测试集也有 20 万行。目标 `target` 是 0/1：1 表示客户后来完成了这笔交易。
 
-比赛数据由银行提供，但出于隐私保护，200 个特征全部被匿名化成了 `var_0`、`var_1`……`var_199` 这样的编号。我们不知道每个变量代表年龄、余额还是消费次数，只能从数值本身的分布里找规律。这是这场比赛最大的难点：**没有业务含义可以借助，只能靠数据自己说话**。
+这场比赛在 Kaggle 历史上非常有名，原因有两个。第一，参赛人数超过 9000，竞争极其激烈。第二，测试集里混入了**人工合成的假样本**：20 万条测试数据中，大约 10 万条是真实客户，另外 10 万条是按训练集分布生成的假客户。主办方的目的是防止参赛者通过“猜测测试集分布”来刷分。谁能识别出真假测试样本，谁就能把特征工程做在正确的数据上。
 
-另一个有意思的地方是测试集的构成。材料里的分析指出，测试集 20 万行里混入了大量人工合成的“假样本”，真正的银行客户样本大约只有 10 万行。假样本是随机生成的，数值分布和真实客户不一样。如果我们不加区分地把全部测试数据拿去做特征统计，就会把噪声当成规律，反而拉低分数。所以比赛里一个关键动作是：**先把真假样本分开，特征工程只在真样本上做**。
+另一个著名发现是所谓的 **magic（魔法特征）**。很长一段时间里，所有队伍都卡在 0.901 的 AUC 附近，普通的特征加减乘除、PCA、聚类、目标编码都没有明显效果。后来有人发现：对每个 `var_i`，统计它在“训练集 + 真实测试集”里每个取值出现了多少次，把这个次数作为新特征，AUC 就能明显提升。这个特征看起来平平无奇，却成了比赛的转折点。
 
 ### 1.2 比赛目标
 
-训练集有 20 万行、200 个匿名数值特征，外加一列 `target` 和一个编号列 `ID_code`。`target` 取 0 或 1，1 表示这位客户后来发生了交易。测试集同样有 20 万行，只比训练集少一列 `target`。
+训练集包含 `ID_code`、`target` 和 200 个 `var_i`；测试集包含 `ID_code` 和 200 个 `var_i`。我们要为测试集每个 `ID_code` 输出一个 0 到 1 之间的概率，表示该客户完成目标交易的可能性。提交文件只有两列：`ID_code` 和 `target`。
 
-我们要做的是：对测试集里的每一个 `ID_code`，输出一个 0 到 1 之间的概率，表示这位客户发生交易的可能性。提交文件包含两列：`ID_code` 和 `target`。
-
-```python
-import pandas as pd
-import numpy as np
-
-# 读取训练集和测试集；ID_code 只是编号，不参与建模
-train = pd.read_csv('../input/train.csv')
-test = pd.read_csv('../input/test.csv')
-
-print(train.shape)   # (200000, 202)：ID_code + target + 200 个特征
-print(test.shape)    # (200000, 201)：ID_code + 200 个特征
-
-# 目标是 0/1 二分类，先看正负样本比例
-print(train['target'].value_counts(normalize=True))
-
-# 200 个特征都是匿名数值，检查有没有缺失
-print(train.isna().sum().max())  # 输出 0，说明没有缺失值
-```
-
-从上面的输出我们知道：训练集 20 万行、测试集 20 万行、每个样本 200 个特征，数据完整、没有缺失。正样本只占少数，所以这是一个**不平衡的二分类问题**。后面评估时不能只看准确率，因为即使把所有样本都猜成 0，准确率也会很高，但那样的模型毫无用处。
+注意测试集里既有真客户也有假客户。假客户也要给预测值，否则提交行数不够；但在做特征工程和验证时，我们要尽量只使用真客户的信息，避免把人工生成的分布当成真实规律。
 
 ### 1.3 评价标准
 
-比赛使用 **ROC 曲线下的面积（AUC，Area Under the ROC Curve）** 作为评价指标，数值越大越好，完美模型的 AUC 是 1.0，随机乱猜大约是 0.5。
+比赛用 **ROC AUC** 评价，越高越好，0.5 相当于随机猜，1.0 是完美排序。AUC 只关心“正类样本的预测概率是否比负类高”，不关心概率的绝对值，所以提交概率即可，不需要先切成 0/1。
 
-用大白话解释：我们把所有测试样本按预测概率从高到低排队，AUC 衡量的是“随机抽一个正样本和一个负样本，正样本的预测概率比负样本高的概率”。所以 AUC 不关心概率的绝对大小，只关心**排序对不对**——只要我们把更可能交易的人排在前面，AUC 就会高。这也是为什么提交概率值、而不是直接提交 0/1 标签，是更稳妥的做法。
+这个指标对类别不平衡很友好。比赛中正类比例不高，如果看准确率，全部预测 0 也能得到很高的数字；但 AUC 会惩罚这种没有排序能力的模型。我们后面所有验证、调参都以 AUC 为准。
 
 ---
 
 ## 二、解题过程
 
-整场比赛我们走的是“先看清数据，再构造频次特征，最后用两阶段 LightGBM 整合”的路线。我们首先做数据探索，其次把真假测试样本分开并构造计数特征，接着训练第一阶段的逐变量模型，然后用第二阶段模型汇总，最后在交叉验证和提交文件上报告指标。
+我们的主线是：先识别测试集里的真假样本，只在“训练集 + 真实测试集”上统计每个特征的取值频次，得到 200 个 count 特征；然后为每个原始特征单独训练一个小 LightGBM，输入只有“原始 var + 它的 count”，把 200 个模型的预测加起来作为最终分数。这个方案在材料里达到交叉验证 AUC 约 0.921、公开榜约 0.922。
 
 ### 2.1 数据探索（EDA）
 
-我们首先看了目标分布和几个特征的直方图。匿名特征大多呈现双峰分布，而且正负样本的分布并不是完全重合的：有些变量在 `target=1` 的一侧明显更靠右。为了量化这种差异，我们对 200 个变量逐个做了单因素方差分析（one-way ANOVA）。它的原假设是“正负样本在这个变量上的均值相同”，p 值越小，说明差异越显著，这个变量越可能有预测能力。
+我们首先读数据，确认形状、类型和目标分布。200 列浮点数占内存不小，所以读入时直接指定 `float32`。
 
 ```python
-from scipy import stats
-import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+from sklearn.metrics import roc_auc_score
 
-# 画出几个变量的分布，按 target 分组叠加
-# 如果正负样本的分布明显错开，这个变量就有区分能力
-for col in ['var_81', 'var_139', 'var_12']:
-    plt.figure()
-    for t in [0, 1]:
-        plt.hist(train.loc[train['target'] == t, col],
-                 bins=50, alpha=0.5, label=f'target={t}')
-    plt.legend()
-    plt.title(col)
-    plt.show()
+# 200 个特征统一用 float32，能把内存占用压到一半左右
+dtypes = {f"var_{i}": "float32" for i in range(200)}
+dtypes["target"] = "uint8"
+dtypes["ID_code"] = "object"
 
-# 对每个变量做单因素方差分析
-# p 值越小，说明该变量在正负样本间的均值差异越显著
-anova_results = []
-for col in train.columns[2:]:          # 跳过 ID_code 和 target
-    group0 = train.loc[train['target'] == 0, col]
-    group1 = train.loc[train['target'] == 1, col]
-    f, p = stats.f_oneway(group0, group1)
-    anova_results.append((col, f, p))
+train = pd.read_csv("../input/train.csv", dtype=dtypes)
+test = pd.read_csv("../input/test.csv", dtype=dtypes)
 
-# 按 p 值从小到大排序，看最强的变量
-for col, f, p in sorted(anova_results, key=lambda x: x[2])[:5]:
-    print(col, f, p)
+print("train:", train.shape)   # (200000, 202)
+print("test :", test.shape)    # (200000, 201)
+print(train["target"].value_counts(normalize=True))
 ```
 
-结果显示 `var_81`、`var_139`、`var_12`、`var_6`、`var_110` 的 p 值极小，是单变量层面最有区分度的一批特征；而 `var_38`、`var_17`、`var_30` 的 p 值在 0.66 到 0.78 之间，几乎和随机噪声差不多。这个发现很重要：**200 个变量并不是同等有用的**，有些变量单独拿出来就很有信号，有些则基本是凑数的。后面阶段一给每个变量单独建模，正是为了让模型自己决定该给每个变量多大的权重。
+打印结果确认：训练集 20 万行、202 列（`ID_code`、`target` 加 200 个特征）；测试集 20 万行、201 列。目标不是 50/50，正类只占少数，所以后面不能只看准确率。
 
-我们还注意到，每个变量的取值都保留了好几位小数，而且同一个数值会在不同样本里反复出现。这个现象在当时引起了很多讨论：它说明这些数值可能来自某种分箱或脱敏处理，**“某个值出现了多少次”本身可能就是一条隐藏信息**。这为后面的计数特征埋下了伏笔。
+接着我们看单个特征的分布。它们大多近似正态，但每条样本的取值都有很多位小数，看起来像是连续变量。我们进一步统计“每个取值出现了多少次”，这一步是整场比赛的关键。
+
+```python
+import matplotlib.pyplot as plt
+
+# 以 var_0 为例，看训练集和测试集的分布是否接近
+plt.figure(figsize=(10, 4))
+plt.hist(train["var_0"], bins=100, alpha=0.5, label="train", density=True)
+plt.hist(test["var_0"], bins=100, alpha=0.5, label="test", density=True)
+plt.legend()
+plt.title("Distribution of var_0")
+plt.show()
+
+# 统计 var_0 每个取值出现的次数，看看有多少“只出现一次”的值
+counts = train["var_0"].value_counts()
+print("unique values:", len(counts))
+print("values appearing once:", (counts == 1).sum())
+print("max frequency:", counts.max())
+```
+
+单个特征有大量不同的取值，绝大多数值只出现一两次。这个“频次”本身在普通表格问题里通常被当成噪声，但在这场比赛中，它携带了数据生成过程留下的痕迹。材料里的分析认为，count 特征之所以有效，是因为正负类的数值在四舍五入/预处理上存在细微差异，频次把这种差异放大成了可学习的信号。我们不需要完全解释清楚原因，只要验证它确实能提高 AUC。
 
 ### 2.2 数据清洗
 
-这份数据没有缺失值，所以常规的填充、删行都不需要。我们做的“清洗”主要有两件事。
-
-第一，把 `ID_code` 从特征里去掉，它只是编号，对预测没有意义。第二，也是更关键的一步：把测试集里的真实样本和合成样本分开。材料的做法是，对测试集的每一列统计每个取值出现的次数。真实客户的某些特征值会在数据集中重复出现，而人工合成的样本是随机生成的，很多特征值只出现一次。只要一个样本在任意一列上有“只出现一次”的值，我们就把它当成真实样本。
+我们其次处理测试集里的假样本。判断方法很巧妙：对测试集的每一列，找出“在整个测试集中只出现一次”的值；如果某一行在任意一列上含有这种唯一值，就认为它是真实样本；如果一行在所有列上都没有唯一值，就认为它是合成样本。
 
 ```python
-# 测试集里混入了人工合成样本，先找出真实样本
-# 思路：真实样本的某个特征值通常会在测试集中出现多次；
-# 合成样本是随机生成的，很多特征值只会出现一次
-test_values = test.drop(columns=['ID_code']).values
+# 只取测试集的特征矩阵
+test_values = test.drop(columns=["ID_code"]).values
+
 unique_count = np.zeros_like(test_values)
 
-for j in range(test_values.shape[1]):
-    _, idx, cnt = np.unique(
-        test_values[:, j], return_index=True, return_counts=True
+# 对每一列，统计每个值出现的次数和第一次出现的位置
+for feature in range(test_values.shape[1]):
+    _, index_, count_ = np.unique(
+        test_values[:, feature],
+        return_counts=True,
+        return_index=True,
     )
-    # 把“只出现一次”的位置标记为 1
-    unique_count[idx[cnt == 1], j] = 1
+    # 只出现一次的值，把对应行的这一列标记为 1
+    unique_count[index_[count_ == 1], feature] += 1
 
-# 只要任意一列有唯一值，就认为是真实样本
-real_idx = np.where(unique_count.sum(axis=1) > 0)[0]
-fake_idx = np.where(unique_count.sum(axis=1) == 0)[0]
-print(len(real_idx), len(fake_idx))   # 100000 100000
+# 只要任意一列有唯一值，这一行就视为真实样本
+real_mask = np.sum(unique_count, axis=1) > 0
+real_indexes = np.argwhere(real_mask)[:, 0]
+fake_indexes = np.argwhere(~real_mask)[:, 0]
+
+print("real test rows:", len(real_indexes))  # 约 100000
+print("fake test rows:", len(fake_indexes))  # 约 100000
 ```
 
-这段代码跑出来正好是 10 万真实样本、10 万合成样本。这个结果和材料里另一位选手的分析一致。我们并不是要把假样本从提交里删掉——提交文件仍然要对全部 20 万行给出预测——而是**在统计频次、构造特征时只用真样本**。如果把假样本也算进去，某个值出现 500 次可能只是随机碰撞，不是真实的业务规律，特征就会失真。
+这段逻辑的依据是：合成样本是按分布重采样出来的，取值容易和别的样本重复；真实样本是连续测量值，至少会在某一列上出现“全测试集唯一”的取值。材料里两个独立 notebook 都用了同一套判断，并得到“10 万真、10 万假”的结果，所以我们把它作为可靠的前置清洗步骤。
 
-另外，为了节省内存，材料里把 200 个特征统一读成 `float32`，把 `target` 读成 `uint8`。20 万行乘 200 列用默认的 `float64` 会占用几百 MB，改成 `float32` 能省一半内存，对后面反复训练模型很有帮助。
+接下来构造 count 特征。注意统计范围只能是**训练集 + 真实测试集**，不能把 10 万假样本也算进去，否则频次会被人工生成的数据污染。
+
+```python
+# 先复制一份，避免修改原始 test
+train_fe = train.copy()
+test_fe = test.copy()
+
+# 只把真实测试行拼到训练集后面，假行不参与频次统计
+full = pd.concat(
+    [train_fe.drop(columns=["target"]), test_fe.loc[real_indexes].drop(columns=["ID_code"])],
+    axis=0,
+    sort=False,
+)
+
+for i in range(200):
+    col = f"var_{i}"
+    # 统计该列在每个取值上的出现次数
+    count_values = full.groupby(col)[col].count()
+    # 训练集和测试集都按自己的取值去查表
+    train_fe[f"new_{col}"] = train_fe[col].map(count_values)
+    test_fe[f"new_{col}"] = test_fe[col].map(count_values)
+    # 理论上不会有缺失，但假样本可能取到没见过的值，填 0 更安全
+    test_fe[f"new_{col}"] = test_fe[f"new_{col}"].fillna(0)
+
+print("新增特征数：", len([c for c in train_fe.columns if c.startswith("new_")]))
+```
+
+这里还有一个容易忽略的细节：`groupby(...).count()` 统计的是“该取值在 full 里出现了多少次”，映射回训练集时，训练集自己的每个值当然都能查到；测试集的假样本可能取到 full 里没有的值，`map` 会产生 `NaN`，所以我们统一填 0，表示“这个值在真实数据里从未出现过”。
 
 ### 2.3 模型训练与超参数调优
 
-这是整场比赛的核心。我们采用“两阶段 LightGBM”：第一阶段对每个变量单独训练一个小模型，输入是这个变量本身加上它的计数值，输出一个“这个变量有多像正样本”的分数；第二阶段把 200 个分数拼成一个新特征矩阵，再训练一个总模型。
+我们接着解释为什么“一个特征训练一个模型”。如果直接把 200 个原始特征加 200 个 count 特征一起喂给 LightGBM，模型会尝试所有特征之间的组合。但 `new_var_3` 只对 `var_3` 有意义，它和 `var_57` 的组合基本是噪声；400 列全量训练既慢，又容易过拟合。
 
-先构造计数特征。对每个 `var_v`，我们统计它在真实样本中每个取值出现的次数，得到 `cnt_v`。这个特征之所以有用，是因为它把“这个值稀不稀有”编码了进去：同样的数值，出现 3 次和出现 300 次，可能代表完全不同的含义。
-
-```python
-class CountEncoder:
-    """统计每个取值在序列中出现了多少次"""
-    def fit(self, series):
-        self.counts = series.groupby(series).count()
-
-    def transform(self, series):
-        return series.map(self.counts).fillna(0).astype(np.int16)
-
-# 合并训练集和测试集，方便统一做特征
-# target=-1 表示测试样本，target=-2 表示测试集里的合成样本
-test['target'] = -1
-for v in range(200):
-    # 只在真实样本上统计频次，避免合成样本污染分布
-    real_mask = test['target'] == -1
-    enc = CountEncoder()
-    enc.fit(test.loc[real_mask, f'var_{v}'])
-    test[f'cnt_{v}'] = enc.transform(test[f'var_{v}'])
-
-# 训练集的计数也用训练集自身的分布来统计
-for v in range(200):
-    enc = CountEncoder()
-    enc.fit(train[f'var_{v}'])
-    train[f'cnt_{v}'] = enc.transform(train[f'var_{v}'])
-```
-
-有了 400 个特征（200 个原值 + 200 个计数值），第一阶段对每个变量训练一个只有两个输入的 LightGBM。这里树要浅、叶子要少，因为输入维度很低，模型太复杂会直接过拟合。学习率用 0.01，配合早停，让模型自己决定每个变量需要多少棵树。材料里很多变量的最佳迭代次数只有几棵到几百棵，说明单变量信号并不强，必须靠后面的第二阶段把 200 路信号合起来。
+材料里的做法是：每次只取一个原始特征和它对应的 count 特征，训练一个很小的 LightGBM，预测该特征单独给出的“正类概率”；200 个特征训练 200 个模型，最后把 200 列概率相加（或平均）。这样每个模型只学二维关系，训练时间从一小时降到几分钟，AUC 反而更高。
 
 ```python
 import lightgbm as lgb
-from sklearn.model_selection import StratifiedKFold
+from sklearn.model_selection import train_test_split
 
+# 固定随机种子，保证 200 个模型的切分完全一致
+seed = 2319
 param = {
-    'objective': 'binary',
-    'metric': 'auc',
-    'boost_from_average': False,  # 不平衡数据下关掉，避免初始分数偏向多数类
-    'learning_rate': 0.01,
-    'num_leaves': 5,              # 每个模型只看两个特征，树要浅
-    'feature_fraction': 1.0,
-    'bagging_freq': 5,
-    'bagging_fraction': 0.4,
-    'min_data_in_leaf': 80,
-    'seed': 44000,
+    "num_leaves": 8,
+    "min_data_in_leaf": 17,
+    "learning_rate": 0.01,
+    "min_sum_hessian_in_leaf": 9.67,
+    "bagging_fraction": 0.8329,
+    "bagging_freq": 2,
+    "feature_fraction": 1,      # 关键：每个模型只有 2 列，必须两列都看
+    "lambda_l1": 0.6426,
+    "lambda_l2": 0.3067,
+    "min_gain_to_split": 0.02832,
+    "max_depth": -1,
+    "seed": seed,
+    "objective": "binary",
+    "boosting_type": "gbdt",
+    "verbosity": -1,
+    "metric": "auc",
+    "is_unbalance": True,
+    "boost_from_average": "false",
+    "num_threads": 8,
 }
 
-skf = StratifiedKFold(n_splits=10, shuffle=True, random_state=4221)
-target = train['target']
+features = [f"var_{i}" for i in range(200)]
+X = train_fe[features]
+y = train_fe["target"]
 
-for fold, (trn_idx, val_idx) in enumerate(skf.split(train, target)):
-    # meta 表用来收集每个变量在本折上的预测分数
-    meta = train[['ID_code', 'target']].copy()
-    for v in range(200):
-        feats = [f'var_{v}', f'cnt_{v}']
-        trn = lgb.Dataset(train.iloc[trn_idx][feats], label=target.iloc[trn_idx])
-        val = lgb.Dataset(train.iloc[val_idx][feats], label=target.iloc[val_idx])
-        clf = lgb.train(
-            param, trn, num_boost_round=1000000,
-            valid_sets=[trn, val],
-            early_stopping_rounds=100,
-            verbose_eval=1000,
-        )
-        # 输出该变量对“是否交易”的单独判断
-        meta[f'{v}_meta'] = clf.predict(
-            train[feats], num_iteration=clf.best_iteration
-        )
-    meta.to_pickle(f'fold_{fold}_meta.pickle')
+# 用同一个切分评估 200 个模型的总分
+X_train, X_valid, y_train, y_valid = train_test_split(
+    X, y, test_size=0.3, random_state=42, stratify=y
+)
 ```
 
-第二阶段把 200 个 `meta` 分数作为输入，训练一个更“宽”的模型。这里的参数和第一阶段不同：`num_leaves=2`，也就是每棵树只分裂一次，模型非常保守；`feature_fraction=0.5`，每棵树随机只看一半的变量，防止某些强变量 dominate；早停轮数放宽到 2000，因为第二阶段要学的是 200 路信号之间的组合关系，需要更多迭代。
+`feature_fraction=1` 是材料里特别强调的一个参数。默认值小于 1 时，每次迭代只随机看一部分特征；但这里每个模型本来就只有两列，如果再随机丢列，模型可能整轮都看不到 count 特征，魔法特征的作用就被削弱了。所以必须让每次迭代都使用全部两列。
+
+下面是训练和汇总预测的核心循环。我们为每个 `var_i` 建一个 `lgb.Dataset`，训练 110 轮，预测验证集，存到 `y_hat` 的第 `i` 列。最后按行求和，得到每个客户的综合分数。
 
 ```python
-# 第二阶段：把 200 个变量各自的 meta 分数拼起来，再训练总模型
-param2 = dict(param)
-param2.update({'num_leaves': 2, 'feature_fraction': 0.5})
-meta_features = [f'{v}_meta' for v in range(200)]
+iterations = 110
+y_hat = np.zeros((len(X_valid), 200))
 
-oof = np.zeros(len(train))
-pred = np.zeros(len(test))
-for fold, (trn_idx, val_idx) in enumerate(skf.split(train, target)):
-    meta = pd.read_pickle(f'fold_{fold}_meta.pickle')
-    trn = lgb.Dataset(meta.iloc[trn_idx][meta_features],
-                      label=target.iloc[trn_idx])
-    val = lgb.Dataset(meta.iloc[val_idx][meta_features],
-                      label=target.iloc[val_idx])
-    clf = lgb.train(
-        param2, trn, num_boost_round=1000000,
-        valid_sets=[trn, val],
-        early_stopping_rounds=2000,
-    )
-    oof[val_idx] = clf.predict(
-        meta.iloc[val_idx][meta_features], num_iteration=clf.best_iteration
-    )
-    pred += clf.predict(
-        test[meta_features], num_iteration=clf.best_iteration
-    ) / 10
+for i, feature in enumerate(features):
+    # 这个模型只看原始特征和它自己的 count 特征
+    feat_choices = [feature, f"new_{feature}"]
+    lgb_train = lgb.Dataset(X_train[feat_choices], y_train)
+    gbm = lgb.train(param, lgb_train, iterations, verbose_eval=-1)
+    y_hat[:, i] = gbm.predict(X_valid[feat_choices], num_iteration=gbm.best_iteration)
+
+# 200 个弱模型的概率相加，得到最终排序分数
+sub_preds = y_hat.sum(axis=1)
+print("CV AUC:", roc_auc_score(y_valid, sub_preds))
 ```
 
-关于调参，材料里的这套参数不是网格搜索出来的，而是围绕“数据信号弱、噪声大”这个特点手工设定的：学习率小、叶子少、行采样和列采样都比较激进，目的都是**压制过拟合**。我们也看到有选手尝试过更复杂的 CNN 方案：把 200 个原值和 200 个计数值拼成 400 列，做成类似序列的输入，用一维卷积提取局部模式，再配合数据增强和循环学习率，private LB 达到 0.92174。这说明计数特征不仅对树模型有效，对神经网络同样有效，是一条比较通用的“魔法”。
+材料里这一步打印的交叉验证分数是 **0.921011**。相比之前所有人卡住的 0.901，这是一个明显的跃升。需要说明的是，这个 0.921 是作者用简单 `train_test_split` 而不是完整 K 折得到的，所以绝对值和排行榜分数不会完全一致；它主要用来快速比较方案。
+
+关于超参数，材料没有做很复杂的网格搜索，而是直接给了一组在小模型上表现稳定的参数：叶子数 8、最小叶子样本 17、学习率 0.01、L1/L2 正则、行采样 0.83。因为每个模型只有两列特征，模型容量必须小，叶子太多会迅速记住训练集的频次噪声。`is_unbalance=True` 让 LightGBM 自动给少数类更高权重，缓解正负样本不均衡。我们的调参重点因此不是“把单模型调得多复杂”，而是确认三件事：count 特征有没有加、`feature_fraction` 是不是 1、每个模型是不是只喂自己的两列。
 
 ### 2.4 模型测试与指标报告
 
-因为测试集没有标签，我们只能在训练集内部做交叉验证。这里用的是 10 折**分层**交叉验证（`StratifiedKFold`）：每一折里正负样本的比例都和整体一致，避免某一折正样本特别少导致 AUC 波动。每一折的验证集预测会写进 `oof`，最后把 10 折的 out-of-fold 预测拼起来算一个总的 AUC。
+确认方案有效后，我们在全部训练数据上重训 200 个模型，对测试集逐列预测并求和。测试集里真假样本都要预测，所以这里用完整的 `test_fe`，不做行过滤。
 
 ```python
-from sklearn.metrics import roc_auc_score
+# 用全量训练数据重新训练，每个特征一个模型
+test_hat = np.zeros((len(test_fe), 200))
 
-# OOF 预测：每条训练样本的分数都来自没有见过它的模型
-cv_auc = roc_auc_score(target, oof)
-print(f'CV AUC: {cv_auc:.5f}')   # 输出 0.92537
+for i, feature in enumerate(features):
+    feat_choices = [feature, f"new_{feature}"]
+    lgb_train = lgb.Dataset(X, y)
+    gbm = lgb.train(param, lgb_train, iterations, verbose_eval=-1)
+    test_hat[:, i] = gbm.predict(test_fe[feat_choices], num_iteration=gbm.best_iteration)
 
-# 测试集预测取 10 折的平均，降低单折随机性
-sub = pd.DataFrame({
-    'ID_code': test['ID_code'],
-    'target': pred,
+# 行方向求和：每个客户得到 200 个模型的累计分数
+test_preds = test_hat.sum(axis=1)
+
+submission = pd.DataFrame({
+    "ID_code": test_fe["ID_code"],
+    "target": test_preds,
 })
-sub.to_csv('submission.csv', index=False)
-print(sub.head())
+submission.to_csv("submission.csv", index=False)
+print(submission.head())
 ```
 
-我们得到的总体验证 AUC 是 **0.92537**。这个数字在当年的比赛里属于比较靠前的水平（比赛第一名的 private LB 在 0.92 到 0.93 这个区间）。作为对照，材料里那个 CNN 方案报告的是 private LB **0.92174**。两个方案相差不到 0.004，说明在匿名特征、弱信号的数据上，**特征工程（尤其是计数特征）比模型结构更重要**：只要把“频次”这条隐藏信息挖出来，树模型和神经网络都能站到 0.92 附近。
+指标报告分三层。第一，本地验证 AUC 是 **0.9210**，这是 200 个模型概率求和后的排序质量。第二，材料标题给出的公开榜分数是 **0.922**，和本地验证非常接近，说明方案没有严重过拟合。第三，参赛前的普遍瓶颈是 **0.901**，加入 count 特征后提升约 0.02，这在 AUC 上是非常大的进步。
 
-我们还会检查提交文件的行数和列名：测试集 20 万行，提交文件也必须是 20 万行；列名必须是 `ID_code` 和 `target`，不能多也不能少。比赛里因为格式问题拿不到分数的例子并不少见，这一步虽然枯燥，但值得做。
+我们还会检查提交格式：行数必须是 20 万，`ID_code` 要和测试集完全一致，`target` 不能有缺失。因为最终分数是 200 列相加，任何一列的预测出现 `NaN` 都会让整行变成 `NaN`，所以提交前要用 `submission.isna().sum()` 确认一遍。
 
 ---
 
 ## 三、总结
 
-本文中我们完成了 Santander 客户交易预测的完整流程。我们首先用 EDA 确认了数据规模：20 万训练样本、20 万测试样本、200 个匿名数值特征、没有缺失值，并用方差分析找出了 `var_81` 等单变量信号最强的特征。其次我们发现测试集里混入了 10 万条人工合成样本，于是用“特征值是否只出现一次”的规则把真假样本分开，所有频次统计只在真实样本上做。接着我们为每个变量构造了计数特征，用两阶段 LightGBM 先做逐变量的“专家打分”，再把 200 路分数汇总成一个总模型。最后我们用 10 折分层交叉验证评估，得到 CV AUC 0.92537，并把 10 折平均预测写成提交文件。
+本文中我们完成了 Santander 客户交易预测的完整流程。我们首先通过 EDA 确认数据是 20 万训练样本、20 万测试样本、200 个匿名浮点特征，目标是类别不平衡的 0/1 交易行为。其次我们识别出测试集中约 10 万条人工合成样本，只把训练集和 10 万条真实测试样本拼起来统计频次，为每个特征构造了“该取值出现了多少次”的 count 特征。接着我们没有把 400 列一起塞进一个大模型，而是为每个原始特征单独训练一个只含“原始 var + 对应 count”的小 LightGBM，并把 `feature_fraction` 设为 1，保证每次迭代都能看到魔法特征。最后我们把 200 个模型的预测概率按行求和，在本地验证集得到约 0.921 的 AUC，材料中的公开榜成绩约为 0.922，明显越过了此前 0.901 的瓶颈。
 
-这个比赛给我们最大的启发是：**当特征被匿名化、业务含义完全缺失时，数据的“统计形态”本身就是信息**。一个数值出现多少次、分布是不是双峰、在正负样本间有没有偏移，这些看似不起眼的线索，往往比换一个更复杂的模型更能提分。另一个启发是数据清洗要看清楚测试集的构成：如果盲目把合成样本混进统计，特征会被噪声带偏，后面的模型再强也救不回来。
+这个比赛给我们的最大启发是：**特征的价值不取决于它看起来高不高级，而取决于它是否揭示了数据生成过程**。count 特征本身只是“数数”，但它把正负类在数值精度上的细微差异放大了。另一个教训是**模型结构要服从特征结构**：既然 count 只和它自己的变量配对，那就一个变量一个模型，既快又准。最后，合成测试样本提醒我们：比赛数据不一定都是“真实用户”，先弄清数据是怎么来的，再决定怎么清洗和验证，往往比急着调参更重要。
