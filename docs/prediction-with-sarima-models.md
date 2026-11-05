@@ -100,6 +100,9 @@ for s in sorted(test['Serie'].unique()):
     sub = test.loc[test['Serie'] == s, 'indice'].sort_values()
     diff = sub.diff().dropna().unique()
     print(f'Series {s}: n={len(sub)}, index diff unique={np.unique(diff)}')
+
+# 确认每条序列的测试行数等于预测步数
+print('rows per series:', test.groupby('Serie').size().to_dict())
 ```
 
 对于这类序列数据，缺失值处理要格外小心。材料没有描述缺失值，代码直接用 `as_numpy` 读取，也没有可见的填充逻辑。通常做法是先补全序列缺失或判断是否等间隔时间序列。我们按照材料的证据采取保守写法：不擅自补插。
@@ -112,6 +115,11 @@ for s, y in series_train.items():
 
 # 测试集也做同样的完整性检查
 print('test invalid:', test['y'].isna().sum())
+
+# 若有缺失需要补齐，否则 SARIMA 拟合时会直接报错
+for s, y in series_train.items():
+    if np.isnan(y).any():
+        print(f'Series {s} has NaN, need imputation')
 ```
 
 最后我们确定候选周期。材料认为季节周期可能为 4、6 或 12，同时保留 `m = 1` 表示无季节性。序列之间的尺度差异让我们推断数据可能存在周、月或年级别的规律，但不会手动指定，而是交给搜索选择。

@@ -78,6 +78,10 @@ print(train_df[numerical_cols].describe().T)
 # 缺失值处理前，先看看哪个列缺失最多
 missing_counts = train_df.isna().sum()
 print('Columns with missing:', missing_counts[missing_counts > 0])
+
+# 类别不平衡时，分层抽样比分随机抽样更可信
+print('H ratio:', (train_df['sexo'] == 'H').mean())
+print('M ratio:', (train_df['sexo'] == 'M').mean())
 ```
 
 ### 2.2 数据清洗
@@ -95,6 +99,9 @@ le = LabelEncoder()
 train_df['sexo_enc'] = le.fit_transform(train_df['sexo'])
 print('Encoding map:', dict(zip(le.classes_, le.transform(le.classes_))))
 print(train_df['sexo_enc'].value_counts())
+
+# 编码后再次检查分布是否保持一致
+print('Encoded class ratio:', train_df['sexo_enc'].value_counts(normalize=True))
 ```
 
 材料发现特征之间存在严重的多重共线性，通过 VIF 进行量化。`envergadura` 与 `mediaEnvergadura` 几乎是同一个特征，`longitudPico` 的 VIF 达到约 6.1。因此我们选择删除 `longitudPico` 和 `envergadura`，保留 `mediaEnvergadura`。特征选择后，我们把数据切成 X 和 y，准备建模。
@@ -160,6 +167,8 @@ for name, model in [('LDA', LinearDiscriminantAnalysis()),
                     ('Logistic Regression', LogisticRegression(max_iter=1000))]:
     scores = cross_val_score(model, X_scaled, y, cv=skf, scoring='accuracy')
     print(f'{name}: mean={scores.mean():.3f}  std={scores.std():.3f}  folds={np.round(scores,3)}')
+    # 输出折数，确认每个模型使用了同样的验证设置
+    print('fold count:', len(scores))
 ```
 
 我们其次在验证集上比较两种模型。材料提到 LDA 的均值更高，标准差更小，说明更稳定。逻辑回归作为对比，参数 `max_iter=1000` 确保收敛。我们还可以把两者合并成投票，但材料的主线保留 LDA 作为主力模型。
@@ -209,6 +218,9 @@ for name, model in [('LDA', LinearDiscriminantAnalysis()),
     cv_results[name] = scores
     print(f'{name} CV scores: {scores}')
     print(f'Mean accuracy: {scores.mean():.3f} +/- {scores.std():.3f}')
+
+# 保存结果字典，便于后续比较
+print('keys:', cv_results.keys())
 ```
 
 然后我们用全量训练数据拟合 LDA，并对测试集预测。最后把预测的整数标签解码回原始性别名称，生成符合提交格式的文件。材料强调要使用 `le.inverse_transform` 把编码值转回字符串，避免写出 0/1 被误解。

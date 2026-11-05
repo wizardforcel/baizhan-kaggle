@@ -244,64 +244,6 @@ def preproc(df):
 ```
 这一段代码通过花色是否相同判断同花，通过点数乘积和阶乘关系判断顺子，通过唯一值数量判断对子、三条、四条等。我们先用这些衍生特征训练随机森林，观察模型在稀有类别上的表现。材料中提到随机森林在训练集上准确率较高，但对四条、葫芦等样本极少的类别预测不稳定，这是因为机器学习的统计方法依赖样本量，而规则判断不受样本量影响。
 
-
-```python
-from scipy import math
-
-def preproc(df):
-    df['min-flush'] = (df['S1']==df['S2'])&(df['S2']==df['S3'])&(df['S3']==df['S4'])&(df['S4']==df['S5'])
-    # 计算点数的最小值
-    a1 = df[['C1', 'C2', 'C3', 'C4', 'C5']].min(axis=1)
-    b1 = 5*a1 + 10
-    # 计算阶乘差用于判断顺子
-    a2 = df[['C1', 'C2', 'C3', 'C4', 'C5']].max(axis=1).apply(math.factorial)
-    b2 = (df[['C1', 'C2', 'C3', 'C4', 'C5']].min(axis=1) -1).apply(math.factorial)
-    c = a2/b2
-    df['min-straight'] = ((df['C1']*df['C2']*df['C3']*df['C4']*df['C5'] == c) & 
-                          (df['C1']+df['C2']+df['C3']+df['C4']+df['C5'] == b1)) | \
-                         ((df[['C1', 'C2', 'C3', 'C4', 'C5']].min(axis=1) == 1) & 
-                          (df['C1']*df['C2']*df['C3']*df['C4']*df['C5'] == 17160))
-    df['min - straight flush'] = df['min-flush'] & df['min-straight']
-    df['RF'] = df[df['min - straight flush']==True][['C1', 'C2', 'C3','C4', 'C5']].sum(axis=1) == 47
-    df['RF'] = df['RF'].fillna(False)
-    df['straight flush'] = (df['min - straight flush'] ==True) & (df['RF'] ==False)
-    df['straight flush'] = df['straight flush'].fillna(False)
-    df = df.drop('min - straight flush', axis=1)
-    df['flush'] = (df['straight flush'] == False) & (df['min-flush'] ==True) & (df['RF'] ==False)
-    df['straight'] = (df['straight flush'] == False) & (df['min-straight'] ==True) & (df['RF'] ==False)
-    df = df.drop('min-straight', axis=1)
-    df = df.drop('min-flush', axis=1)
-    df['flush'] = df['flush'].fillna(False)
-    df['straight'] = df['straight'].fillna(False)
-    df['Nothing in hand'] = (df[['C1', 'C2', 'C3', 'C4', 'C5']].nunique(axis=1) == 5) & \
-                           (df['straight'] ==False) & (df['flush'] == False) & \
-                           (df['RF'] == False)& (df['straight flush'] == False)
-    df['Nothing in hand'] = df['Nothing in hand'].fillna(False)
-    df['One pair'] = (df[['C1', 'C2', 'C3', 'C4', 'C5']].nunique(axis=1) == 4)
-    df['One pair'] = df['One pair'].fillna(False)
-    df['Four of a kind or Full house'] = df[['C1', 'C2', 'C3', 'C4', 'C5']].nunique(axis=1) == 2
-    df['Two pairs or Three of a kind'] = df[['C1', 'C2', 'C3', 'C4', 'C5']].nunique(axis=1) == 3
-    df['Four of a kind or Full house'] = df['Four of a kind or Full house'].fillna(False)
-    df['Two pairs or Three of a kind'] = df['Two pairs or Three of a kind'].fillna(False)
-    dff = np.array(df[['C1', 'C2', 'C3', 'C4', 'C5']])
-    a = []
-    for i in range(dff.shape[0]):
-        u, v = np.unique(dff[i], return_counts=True)
-        a.append(4 in v)
-    df['Four of a kind'] = np.array(a)
-    df['Full house'] = (df['Four of a kind']==False) & (df['Four of a kind or Full house'] ==True)
-    df = df.drop('Four of a kind or Full house', axis=1)
-    a = []
-    for i in range(dff.shape[0]):
-        u, v = np.unique(dff[i], return_counts=True)
-        a.append(set(v) == set([1,1,3]))
-    df['Three of a kind'] = np.array(a)
-    df['Two pairs'] = (df['Three of a kind']==False) & (df['Two pairs or Three of a kind'] ==True)
-    df = df.drop('Two pairs or Three of a kind', axis=1)
-    df = df.drop(['S1', 'S2','S3','S4','S5','C1','C2','C3','C4','C5'], axis=1)
-    return df
-```
-
 使用构建的特征训练随机森林模型：
 
 ```python

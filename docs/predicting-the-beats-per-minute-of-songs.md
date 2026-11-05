@@ -331,9 +331,19 @@ plt.show()
 
 ```python
 # 最后的格式检查，确保不会因为格式错误丢分
-sample = pd.read_csv("/kaggle/input/predicting-the-beats-per-minute-of-songs/sample_submission.csv")
+sample = pd.read_csv(
+    "/kaggle/input/predicting-the-beats-per-minute-of-songs/sample_submission.csv"
+)
+
+# 列名必须与样例文件一致，行数必须与测试集一致
 assert list(submission.columns) == list(sample.columns)
 assert len(submission) == len(sample)
+
+# 预测结果不能有空值，也不应出现明显不合理的数值
+assert submission.isna().sum().sum() == 0
+print("columns match:", list(submission.columns))
+print("rows match:", len(submission) == len(sample))
+print("missing values:", submission.isna().sum().sum())
 print("format check passed")
 ```
 
