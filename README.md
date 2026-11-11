@@ -3,7 +3,9 @@
 > [!WARNING]
 > 🧪 Beta公测版本提示：教程主体已完成，正在优化细节，欢迎大家提Issue反馈问题或建议。
 
-*汇总 Kaggle 平台上目前为止 400+ 比赛的最佳 writeup。*
+*你已经抓住了石头，现在是挥舞它的时候了！——《天之炽》*
+
+*汇总 Kaggle 平台上目前为止 400+ 比赛的最佳 Writeup。*
 
 ## 项目受众
 
@@ -14,16 +16,19 @@ https://datawhalechina.github.io/baizhan-kaggle
 
 ## 目录
 
-### Writeups
+### Writeup
 
 |  章节名   | 简介 | 状态 |
 |  ----  | ---- | ---- |
-| [第1章 xxx](https://github.com/datawhalechina/repo-template/blob/main/docs/chapter1)  | xxx | ✅ |
-| [第2章 xxx](https://github.com/datawhalechina/repo-template/blob/main/docs/chapter2)  | xxx | ✅ |
-| [第3章 xxx](https://github.com/datawhalechina/repo-template/blob/main/docs/chapter3)  | xxx | ✅ |
-| 第4章  | xxx | 🚧 |
+| [游戏销量预测比赛](docs/writeups/2-of-the-game-sales-competition/)  | 比赛要求我们根据一款游戏的各项属性，预测它的**总销量**（`total_sales`）。 | ✅ |
+| [20 Newsgroups 密文挑战](docs/writeups/20-newsgroups-ciphertext-challenge/)  | 比赛做的事情是：把 20 Newsgroups 的帖子**加密**之后交给参赛者，让大家在「看不到原文」的情况下，猜出每段密文属于哪个话题。 | ✅ |
+| [2026 IEEE Big Data 交通流基准赛](docs/writeups/2026-ieee-big-data-traffic-flow-bench/)  | 比赛给出一批高速公路检测器的历史数据，要求参赛者同时完成四个互相关联的任务。 | ✅ |
+| [DDCup 能耗预测公开赛](docs/writeups/2026pwxc00-public/)  | 比赛给出一张**设备能耗表**，我们要做的事是，**看着这些测量值，预测这台设备会消耗多少电**。 | ✅ |
+| [3×3×3 魔方分层转动挑战](docs/writeups/3-3-3-twist-lab-face-and-middle-layer-turns/)  | 比赛来自 CayleyPy 这一系列「魔方求解」比赛。它和普通魔方题最大的不同在于**转动规则**。 | ✅ |
+| [3220 贷款审批挑战](docs/writeups/3220-loan-approval/)  | 比赛给出一份贷款申请记录数据集，要求我们根据申请人的各项属性，预测他的贷款最终是否被批准（`loan_status`）。 | ✅ |
+| [**全部比赛的 Writeup**](docs/writeups/SUMMARY.md) | 查看全部比赛的 Writeup | ✅ |
 
-## 教程书籍
+### 教程书籍
 
 （编写中）
 
