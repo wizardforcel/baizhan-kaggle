@@ -20,12 +20,12 @@ https://datawhalechina.github.io/baizhan-kaggle
 
 |  章节名   | 简介 | 状态 |
 |  ----  | ---- | ---- |
-| [游戏销量预测比赛](docs/writeups/2-of-the-game-sales-competition/)  | 比赛要求我们根据一款游戏的各项属性，预测它的**总销量**（`total_sales`）。 | ✅ |
-| [20 Newsgroups 密文挑战](docs/writeups/20-newsgroups-ciphertext-challenge/)  | 比赛做的事情是：把 20 Newsgroups 的帖子**加密**之后交给参赛者，让大家在「看不到原文」的情况下，猜出每段密文属于哪个话题。 | ✅ |
-| [2026 IEEE Big Data 交通流基准赛](docs/writeups/2026-ieee-big-data-traffic-flow-bench/)  | 比赛给出一批高速公路检测器的历史数据，要求参赛者同时完成四个互相关联的任务。 | ✅ |
-| [DDCup 能耗预测公开赛](docs/writeups/2026pwxc00-public/)  | 比赛给出一张**设备能耗表**，我们要做的事是，**看着这些测量值，预测这台设备会消耗多少电**。 | ✅ |
-| [3×3×3 魔方分层转动挑战](docs/writeups/3-3-3-twist-lab-face-and-middle-layer-turns/)  | 比赛来自 CayleyPy 这一系列「魔方求解」比赛。它和普通魔方题最大的不同在于**转动规则**。 | ✅ |
-| [3220 贷款审批挑战](docs/writeups/3220-loan-approval/)  | 比赛给出一份贷款申请记录数据集，要求我们根据申请人的各项属性，预测他的贷款最终是否被批准（`loan_status`）。 | ✅ |
+| [游戏销量预测比赛](docs/writeups/2-of-the-game-sales-competition/index.md)  | 比赛要求我们根据一款游戏的各项属性，预测它的**总销量**（`total_sales`）。 | ✅ |
+| [20 Newsgroups 密文挑战](docs/writeups/20-newsgroups-ciphertext-challenge/index.md)  | 比赛做的事情是：把 20 Newsgroups 的帖子**加密**之后交给参赛者，让大家在「看不到原文」的情况下，猜出每段密文属于哪个话题。 | ✅ |
+| [2026 IEEE Big Data 交通流基准赛](docs/writeups/2026-ieee-big-data-traffic-flow-bench/index.md)  | 比赛给出一批高速公路检测器的历史数据，要求参赛者同时完成四个互相关联的任务。 | ✅ |
+| [DDCup 能耗预测公开赛](docs/writeups/2026pwxc00-public/index.md)  | 比赛给出一张**设备能耗表**，我们要做的事是，**看着这些测量值，预测这台设备会消耗多少电**。 | ✅ |
+| [3×3×3 魔方分层转动挑战](docs/writeups/3-3-3-twist-lab-face-and-middle-layer-turns/index.md)  | 比赛来自 CayleyPy 这一系列「魔方求解」比赛。它和普通魔方题最大的不同在于**转动规则**。 | ✅ |
+| [3220 贷款审批挑战](docs/writeups/3220-loan-approval/index.md)  | 比赛给出一份贷款申请记录数据集，要求我们根据申请人的各项属性，预测他的贷款最终是否被批准（`loan_status`）。 | ✅ |
 | [**全部比赛的 Writeup**](docs/writeups/SUMMARY.md) | 查看全部比赛的 Writeup | ✅ |
 
 ### 教程书籍
@@ -36,7 +36,7 @@ https://datawhalechina.github.io/baizhan-kaggle
 
 | 姓名 | 职责 | 简介 |
 | :----| :---- | :---- |
-| 张子辰 | 项目负责人 | 专注于模型量化、端侧推理和注意力机制改进 |
+| [张子辰](https://github.com/wizardforcel/) | 项目负责人 | 专注于模型量化、端侧推理和注意力机制改进 |
 
 ## 参与贡献
 
