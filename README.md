@@ -14,12 +14,18 @@ https://datawhalechina.github.io/baizhan-kaggle
 
 ## 目录
 
+### Writeups
+
 |  章节名   | 简介 | 状态 |
 |  ----  | ---- | ---- |
 | [第1章 xxx](https://github.com/datawhalechina/repo-template/blob/main/docs/chapter1)  | xxx | ✅ |
 | [第2章 xxx](https://github.com/datawhalechina/repo-template/blob/main/docs/chapter2)  | xxx | ✅ |
 | [第3章 xxx](https://github.com/datawhalechina/repo-template/blob/main/docs/chapter3)  | xxx | ✅ |
 | 第4章  | xxx | 🚧 |
+
+## 教程书籍
+
+（编写中）
 
 ## 贡献者名单
 
