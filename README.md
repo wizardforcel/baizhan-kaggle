@@ -1,24 +1,18 @@
-<h1 align="center"> 项目名称（⚠️ Alpha内测版 / 🧪 Beta公测版） </h1>
-
-> [!CAUTION]
-> ⚠️ Alpha内测版本警告：此为早期内部构建版本，尚不完整且可能存在错误，欢迎大家提Issue反馈问题或建议。
-
-或者
+<h1 align="center">百战 Kaggle</h1>
 
 > [!WARNING]
 > 🧪 Beta公测版本提示：教程主体已完成，正在优化细节，欢迎大家提Issue反馈问题或建议。
 
-*这里写项目的各类介绍信息、背景、动机等内容*
+*汇总 Kaggle 平台上目前为止 400+ 比赛的最佳 writeup。*
 
 ## 项目受众
 
-*注：这里写你的项目所面向的受众，本项目能给他们带来什么，对他们的基础能力要求有哪些*
+机器学习入门者，想要打比赛获得荣誉的人。
 
 ## 在线阅读
-https://datawhalechina.github.io/repo-template
+https://datawhalechina.github.io/baizhan-kaggle
 
 ## 目录
-*这里写你的项目目录，及其完成状态，已完成的部分添加上跳转链接*
 
 |  章节名   | 简介 | 状态 |
 |  ----  | ---- | ---- |
@@ -31,11 +25,7 @@ https://datawhalechina.github.io/repo-template
 
 | 姓名 | 职责 | 简介 |
 | :----| :---- | :---- |
-| 小明 | 项目负责人 | 一个理想主义者 |
-| 小红 | 第1章贡献者 | 小明的朋友 |
-| 小强 | 第2章贡献者 | 小明的朋友 |
-
-*注：表头可自定义，但必须在名单中标明项目负责人*
+| 张子辰 | 项目负责人 | 专注于模型量化、端侧推理和注意力机制改进 |
 
 ## 参与贡献
 
@@ -54,4 +44,3 @@ https://datawhalechina.github.io/repo-template
 
 <a rel="license" href="http://creativecommons.org/licenses/by-nc-sa/4.0/"><img alt="知识共享许可协议" style="border-width:0" src="https://img.shields.io/badge/license-CC%20BY--NC--SA%204.0-lightgrey" /></a><br />本作品采用<a rel="license" href="http://creativecommons.org/licenses/by-nc-sa/4.0/">知识共享署名-非商业性使用-相同方式共享 4.0 国际许可协议</a>进行许可。
 
-*注：默认使用CC 4.0协议，也可根据自身项目情况选用其他协议*
