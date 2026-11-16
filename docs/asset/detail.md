@@ -1084,7 +1084,287 @@
 
 ---
 
-## 附录：常用 Kaggle 评估指标速查表
+## 附录 A：NumPy 快速参考
+
+A.1 数组创建  
+- 常用类与函数：`np.array`、`np.zeros`、`np.ones`、`np.empty`、`np.full`、`np.arange`、`np.linspace`、`np.eye`、`np.identity`、`np.diag`、`np.random.rand`、`np.random.randn`、`np.random.randint`、`np.random.random`  
+- 用大白话说：NumPy 数组就是装数字的“容器”，机器学习里的数据几乎都要先装进这里才能计算。  
+- 【Python 代码示例】：`import numpy as np; a = np.array([1, 2, 3]); b = np.zeros((3, 3)); c = np.linspace(0, 10, 5); d = np.random.randn(2, 3)`  
+- 【Mermaid 图表】：数组创建方式对比图
+
+A.2 数组属性与索引  
+- 常用属性与方法：`shape`、`ndim`、`size`、`dtype`、`itemsize`、`reshape`、`ravel`、`flatten`、`T`、`transpose`  
+- 常用索引：切片 `arr[1:5]`、`fancy indexing` `arr[[0, 2, 4]]`、`boolean indexing` `arr[arr > 0]`、`np.where`  
+- 用大白话说：属性告诉你数组长什么样，索引告诉你怎么取出想要的那几个数。  
+- 【Python 代码示例】：`print(a.shape, a.dtype); print(a[a > 1]); idx = np.where(a > 1); print(a[idx])`  
+- 【Mermaid 图表】：数组索引与切片示意图
+
+A.3 数学与统计函数  
+- 常用函数：`np.sum`、`np.mean`、`np.std`、`np.var`、`np.min`、`np.max`、`np.argmin`、`np.argmax`、`np.cumsum`、`np.cumprod`、`np.diff`、`np.sort`、`np.argsort`、`np.unique`、`np.median`、`np.percentile`  
+- 用大白话说：对数组求和、平均、最大值、排序、去重等常见统计操作。  
+- 【Python 代码示例】：`print(np.mean(a), np.std(a)); print(np.argsort(a)); print(np.unique(a))`  
+- 【Mermaid 图表】：无
+
+A.4 广播机制与矩阵运算  
+- 常用函数与运算符：`np.dot`、`np.matmul`、`@` 运算符、`np.transpose`、`np.diagonal`、`np.trace`、`np.linalg.inv`、`np.linalg.solve`、`np.linalg.eig`、`np.linalg.svd`、`np.linalg.det`、`np.linalg.norm`  
+- 用大白话说：广播让不同形状的数组能直接相加相乘；矩阵运算是线性代数的核心，机器学习模型里到处都是。  
+- 【Python 代码示例】：`c = a @ b; inv = np.linalg.inv(b); vals, vecs = np.linalg.eig(b)`  
+- 【Mermaid 图表】：矩阵乘法与广播示意图
+
+A.5 随机数  
+- 常用函数：`np.random.seed`、`np.random.rand`、`np.random.randn`、`np.random.randint`、`np.random.normal`、`np.random.uniform`、`np.random.choice`、`np.random.shuffle`、`np.random.permutation`  
+- 用大白话说：训练模型时要打乱数据、初始化权重，都需要随机数；设 seed 可以让结果可复现。  
+- 【Python 代码示例】：`np.random.seed(42); idx = np.random.permutation(len(a)); train_idx = idx[:100]`  
+- 【Mermaid 图表】：无
+
+A.6 形状操作与合并  
+- 常用函数：`np.concatenate`、`np.vstack`、`np.hstack`、`np.stack`、`np.split`、`np.vsplit`、`np.hsplit`、`np.tile`、`np.repeat`、`np.expand_dims`、`np.squeeze`  
+- 用大白话说：把多个数组拼在一起，或者把一个数组拆成几块，调整数组的维度形状。  
+- 【Python 代码示例】：`c = np.concatenate([a, b], axis=0); d = np.expand_dims(a, axis=1)`  
+- 【Mermaid 图表】：数组合并与拆分示意图
+
+A.7 文件读写  
+- 常用函数：`np.save`、`np.load`、`np.savez`、`np.savez_compressed`、`np.genfromtxt`、`np.loadtxt`  
+- 用大白话说：把数组保存到磁盘，下次直接读出来用，不用重新生成。  
+- 【Python 代码示例】：`np.save('data.npy', a); a2 = np.load('data.npy')`  
+- 【Mermaid 图表】：无
+
+A.8 小结  
+- NumPy 是 pandas、scikit-learn、PyTorch 的底层基础，掌握数组创建、索引、统计、矩阵运算即可应付大部分竞赛场景。
+
+---
+
+## 附录 B：pandas 快速参考
+
+B.1 读写数据  
+- 常用函数：`pd.read_csv`、`pd.read_excel`、`pd.read_json`、`pd.read_sql`、`pd.read_parquet`、`pd.read_html`、`df.to_csv`、`df.to_excel`、`df.to_json`、`df.to_parquet`  
+- 用大白话说：把外部数据文件读进 pandas，处理完再写回去。  
+- 【Python 代码示例】：`df = pd.read_csv('train.csv'); df.to_csv('submission.csv', index=False)`  
+- 【Mermaid 图表】：数据读写流程图
+
+B.2 Series 与 DataFrame 创建  
+- 常用类与函数：`pd.Series`、`pd.DataFrame`、`pd.Index`、`pd.MultiIndex`  
+- 用大白话说：Series 是一列数据，DataFrame 是一张表（多列），Index 是行列索引。  
+- 【Python 代码示例】：`s = pd.Series([1, 2, 3]); df = pd.DataFrame({'a': [1, 2], 'b': [3, 4]})`  
+- 【Mermaid 图表】：Series 与 DataFrame 结构图
+
+B.3 属性与基本操作  
+- 常用属性与方法：`shape`、`columns`、`index`、`dtypes`、`head`、`tail`、`info`、`describe`、`unique`、`nunique`、`value_counts`、`isnull`、`notnull`、`fillna`、`dropna`、`drop`、`reset_index`、`set_index`、`rename`、`astype`  
+- 用大白话说：查看数据长什么样、有没有缺失、类型是什么，改名字、改类型、删行列。  
+- 【Python 代码示例】：`print(df.info()); print(df['col'].value_counts()); df = df.fillna(0)`  
+- 【Mermaid 图表】：无
+
+B.4 索引与筛选  
+- 常用方法：`loc`、`iloc`、`at`、`iat`、`切片`、`布尔索引`、`query`、`between`、`isin`、`nlargest`、`nsmallest`、`filter`  
+- 用大白话说：按行列名或位置取数据，按条件筛选出想要的行。  
+- 【Python 代码示例】：`df.loc[df['age'] > 18, ['name', 'salary']]; df.query('score > 90')`  
+- 【Mermaid 图表】：loc 与 iloc 区别示意图
+
+B.5 分组与聚合  
+- 常用方法：`groupby`、`agg`、`apply`、`transform`、`filter`、`pivot_table`、`crosstab`、`size`、`count`、`sum`、`mean`、`min`、`max`、`std`、`first`、`last`、`nth`  
+- 用大白话说：把数据分成几组，对每组分别求平均、求和、求个数，做透视表。  
+- 【Python 代码示例】：`df.groupby('city')['price'].mean(); df.pivot_table(values='sales', index='city', columns='month', aggfunc='sum')`  
+- 【Mermaid 图表】：groupby 分组聚合流程图
+
+B.6 合并与连接  
+- 常用函数：`pd.merge`、`df.join`、`pd.concat`、`df.append`（已弃用，推荐 concat）  
+- 用大白话说：像 Excel 的 VLOOKUP 那样，把两张表按某列拼在一起，或者上下堆叠。  
+- 【Python 代码示例】：`pd.merge(df1, df2, on='id', how='left'); pd.concat([df1, df2], axis=0)`  
+- 【Mermaid 图表】：表连接方式示意图
+
+B.7 字符串操作  
+- 常用方法：`df['col'].str.contains`、`str.split`、`str.replace`、`str.startswith`、`str.endswith`、`str.len`、`str.lower`、`str.upper`、`str.strip`、`str.extract`、`str.extractall`  
+- 用大白话说：对文本列做查找、替换、切分、大小写转换等操作。  
+- 【Python 代码示例】：`df['email'].str.contains('@'); df['name'].str.split(' ', expand=True)`  
+- 【Mermaid 图表】：无
+
+B.8 日期与时间  
+- 常用函数与方法：`pd.to_datetime`、`pd.date_range`、`pd.Period`、`pd.Timestamp`、`dt.year`、`dt.month`、`dt.day`、`dt.hour`、`dt.weekday`、`dt.dayofweek`、`dt.is_month_end`、`resample`、`shift`、`rolling`、`expanding`、`ewm`  
+- 用大白话说：把字符串日期变成 pandas 能识别的日期类型，按时间分组、滚动计算、移动平均。  
+- 【Python 代码示例】：`df['date'] = pd.to_datetime(df['date']); df['month'] = df['date'].dt.month; df.rolling(7).mean()`  
+- 【Mermaid 图表】：时间序列滚动窗口示意图
+
+B.9 缺失值与重复  
+- 常用方法：`isna`、`isnull`、`notna`、`notnull`、`fillna`、`dropna`、`interpolate`、`duplicated`、`drop_duplicates`、`value_counts(dropna=False)`  
+- 用大白话说：发现缺失值、填补缺失值、删除缺失值，处理重复行。  
+- 【Python 代码示例】：`print(df.isnull().sum()); df = df.drop_duplicates()`  
+- 【Mermaid 图表】：缺失值处理决策树
+
+B.10 小结  
+- pandas 是表格数据竞赛的主力工具，读取、筛选、分组、合并、缺失值处理这几项掌握即可。
+
+---
+
+## 附录 C：matplotlib 快速参考
+
+C.1 图形基础  
+- 常用函数：`plt.figure`、`plt.subplot`、`plt.subplots`、`plt.show`、`plt.close`、`plt.savefig`、`plt.title`、`plt.xlabel`、`plt.ylabel`、`plt.xlim`、`plt.ylim`、`plt.grid`、`plt.legend`、`plt.tight_layout`  
+- 用大白话说：创建画布，设置标题、坐标轴标签、范围、网格、图例，最后显示或保存图片。  
+- 【Python 代码示例】：`plt.figure(figsize=(8, 6)); plt.plot(x, y); plt.title('图表'); plt.savefig('plot.png')`  
+- 【Mermaid 图表】：绘图流程图
+
+C.2 常见图表  
+- 常用函数：`plt.plot`、`plt.scatter`、`plt.bar`、`plt.barh`、`plt.hist`、`plt.boxplot`、`plt.pie`、`plt.errorbar`、`plt.fill_between`、`plt.stackplot`、`plt.step`、`plt.violinplot`  
+- 用大白话说：折线图看趋势，散点图看关系，柱状图比大小，直方图看分布，箱线图看离散程度。  
+- 【Python 代码示例】：`plt.scatter(df['area'], df['price']); plt.hist(df['price'], bins=30)`  
+- 【Mermaid 图表】：常见图表选型图
+
+C.3 坐标轴与刻度  
+- 常用函数：`plt.xticks`、`plt.yticks`、`plt.tick_params`、`ax.spines`、`plt.twinx`、`plt.twiny`、`plt.annotate`、`plt.text`、`plt.arrow`  
+- 用大白话说：调整刻度标签、坐标轴样式，加双坐标轴，在图上标注文字和箭头。  
+- 【Python 代码示例】：`plt.xticks(rotation=45); ax2 = plt.twinx(); ax2.plot(x, z, color='red')`  
+- 【Mermaid 图表】：无
+
+C.4 子图与布局  
+- 常用函数：`plt.subplots`、`plt.GridSpec`、`plt.tight_layout`、`plt.subplots_adjust`、`plt.subplot2grid`  
+- 用大白话说：在一个画布里画多个小图，调整它们之间的间距。  
+- 【Python 代码示例】：`fig, axes = plt.subplots(2, 2); axes[0, 0].plot(x, y)`  
+- 【Mermaid 图表】：子图布局示意图
+
+C.5 样式与颜色  
+- 常用参数：`color`、`linestyle`、`marker`、`linewidth`、`markersize`、`alpha`、`cmap`、`plt.colorbar`、`plt.style.use`、`plt.rcParams`  
+- 用大白话说：设置线条颜色、样式、点的形状、透明度、颜色条，让图更好看。  
+- 【Python 代码示例】：`plt.plot(x, y, color='red', linestyle='--', marker='o', alpha=0.7)`  
+- 【Mermaid 图表】：无
+
+C.6 图例与注释  
+- 常用函数：`plt.legend`、`plt.annotate`、`plt.text`、`plt.arrow`、`plt.xlabel`、`plt.ylabel`、`plt.title`  
+- 用大白话说：加图例说明每条线代表什么，加注释解释图中的关键点。  
+- 【Python 代码示例】：`plt.legend(['训练集', '验证集']); plt.annotate('最高点', xy=(x_max, y_max))`  
+- 【Mermaid 图表】：无
+
+C.7 保存与显示  
+- 常用函数：`plt.savefig`、`plt.show`、`plt.close`  
+- 参数：`dpi`、`bbox_inches`、`format`、`transparent`  
+- 用大白话说：把图保存成文件，或者在 Notebook 里直接显示，用完记得关闭释放内存。  
+- 【Python 代码示例】：`plt.savefig('output.png', dpi=300, bbox_inches='tight'); plt.show(); plt.close()`  
+- 【Mermaid 图表】：无
+
+C.8 小结  
+- matplotlib 适合快速画出探索性图表，掌握 plot、scatter、hist、bar、subplots、savefig 即可应付大部分需求。
+
+---
+
+## 附录 D：scikit-learn 快速参考
+
+D.1 数据预处理  
+- 常用类：`sklearn.preprocessing.StandardScaler`、`MinMaxScaler`、`RobustScaler`、`MaxAbsScaler`、`Normalizer`、`Binarizer`、`OneHotEncoder`、`OrdinalEncoder`、`LabelEncoder`、`SimpleImputer`、`PolynomialFeatures`、`KBinsDiscretizer`、`FunctionTransformer`、`PowerTransformer`、`QuantileTransformer`  
+- 用大白话说：把原始数据变成模型能吃的格式：缺失值填补、数值缩放、类别编码、多项式特征。  
+- 【Python 代码示例】：`from sklearn.preprocessing import StandardScaler; scaler = StandardScaler(); X_scaled = scaler.fit_transform(X)`  
+- 【Mermaid 图表】：预处理流程图
+
+D.2 特征选择  
+- 常用类：`sklearn.feature_selection.SelectKBest`、`SelectPercentile`、`RFE`、`RFECV`、`VarianceThreshold`、`SelectFromModel`  
+- 用大白话说：从很多特征里挑出最有用的几个，减少噪声和过拟合。  
+- 【Python 代码示例】：`from sklearn.feature_selection import SelectKBest, f_classif; selector = SelectKBest(f_classif, k=10); X_new = selector.fit_transform(X, y)`  
+- 【Mermaid 图表】：无
+
+D.3 模型选择与交叉验证  
+- 常用函数与类：`sklearn.model_selection.train_test_split`、`KFold`、`StratifiedKFold`、`TimeSeriesSplit`、`GroupKFold`、`cross_val_score`、`cross_val_predict`、`cross_validate`、`GridSearchCV`、`RandomizedSearchCV`、`learning_curve`、`validation_curve`  
+- 用大白话说：把数据分成训练和验证，交叉验证更稳，网格搜索帮你找最好的超参数。  
+- 【Python 代码示例】：`X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2); cv = cross_val_score(model, X, y, cv=5)`  
+- 【Mermaid 图表】：交叉验证流程图
+
+D.4 回归模型  
+- 常用类：`sklearn.linear_model.LinearRegression`、`Ridge`、`Lasso`、`ElasticNet`、`SGDRegressor`、`sklearn.tree.DecisionTreeRegressor`、`sklearn.ensemble.RandomForestRegressor`、`GradientBoostingRegressor`、`sklearn.svm.SVR`、`sklearn.neighbors.KNeighborsRegressor`  
+- 用大白话说：预测连续数值（房价、销量）的模型，线性回归最简单，树模型和 XGBoost 效果通常更好。  
+- 【Python 代码示例】：`from sklearn.linear_model import Ridge; model = Ridge(alpha=1.0); model.fit(X_train, y_train)`  
+- 【Mermaid 图表】：无
+
+D.5 分类模型  
+- 常用类：`sklearn.linear_model.LogisticRegression`、`SGDClassifier`、`sklearn.tree.DecisionTreeClassifier`、`RandomForestClassifier`、`GradientBoostingClassifier`、`sklearn.svm.SVC`、`LinearSVC`、`KNeighborsClassifier`、`sklearn.naive_bayes.GaussianNB`、`MultinomialNB`、`BernoulliNB`  
+- 用大白话说：预测类别（是否点击、是否违约）的模型，逻辑回归是基线，随机森林和梯度提升常用。  
+- 【Python 代码示例】：`from sklearn.ensemble import RandomForestClassifier; clf = RandomForestClassifier(n_estimators=100); clf.fit(X_train, y_train)`  
+- 【Mermaid 图表】：无
+
+D.6 集成模型  
+- 常用类：`sklearn.ensemble.VotingClassifier`、`VotingRegressor`、`StackingClassifier`、`StackingRegressor`、`BaggingClassifier`、`BaggingRegressor`、`AdaBoostClassifier`、`AdaBoostRegressor`  
+- 用大白话说：多个模型合在一起投票或平均，通常比单个模型更稳、分数更高。  
+- 【Python 代码示例】：`from sklearn.ensemble import VotingClassifier; vc = VotingClassifier(estimators=[('rf', rf), ('xgb', xgb)], voting='soft')`  
+- 【Mermaid 图表】：集成学习结构图
+
+D.7 聚类与降维  
+- 常用类：`sklearn.cluster.KMeans`、`AgglomerativeClustering`、`DBSCAN`、`GaussianMixture`、`sklearn.decomposition.PCA`、`KernelPCA`、`sklearn.manifold.TSNE`、`TruncatedSVD`、`NMF`  
+- 用大白话说：聚类把相似的样本分到一组，降维把高维数据压缩到低维便于可视化。  
+- 【Python 代码示例】：`from sklearn.cluster import KMeans; kmeans = KMeans(n_clusters=3); labels = kmeans.fit_predict(X)`  
+- 【Mermaid 图表】：无
+
+D.8 管道与评估  
+- 常用类与函数：`sklearn.pipeline.Pipeline`、`FeatureUnion`、`make_pipeline`、`make_column_transformer`、`sklearn.metrics.accuracy_score`、`precision_score`、`recall_score`、`f1_score`、`roc_auc_score`、`mean_squared_error`、`mean_absolute_error`、`r2_score`、`confusion_matrix`、`classification_report`、`roc_curve`、`precision_recall_curve`  
+- 用大白话说：Pipeline 把预处理和模型串起来避免泄漏，评估函数算出模型好不好。  
+- 【Python 代码示例】：`from sklearn.pipeline import Pipeline; pipe = Pipeline([('scaler', StandardScaler()), ('clf', RandomForestClassifier())]); print(accuracy_score(y_test, pipe.predict(X_test)))`  
+- 【Mermaid 图表】：Pipeline 流程图
+
+D.9 小结  
+- scikit-learn 是表格数据竞赛的标准库，预处理、模型、交叉验证、评估四件套掌握即可。
+
+---
+
+## 附录 E：PyTorch 快速参考
+
+E.1 Tensor 基础  
+- 常用函数：`torch.tensor`、`torch.zeros`、`torch.ones`、`torch.rand`、`torch.randn`、`torch.arange`、`torch.linspace`、`torch.eye`、`torch.from_numpy`、`.numpy()`、`dtype`、`device`、`requires_grad`、`.detach()`、`.item()`、`.reshape()`、`.view()`、`.transpose()`、`.permute()`、`.squeeze()`、`.unsqueeze()`、`.cat()`、`.stack()`、`.split()`、`.chunk()`、`.index_select()`、`.masked_select()`、`.nonzero()`、`.where()`  
+- 用大白话说：Tensor 是 PyTorch 里的多维数组，可以在 GPU 上运行，支持自动求导。  
+- 【Python 代码示例】：`import torch; x = torch.tensor([1.0, 2.0], requires_grad=True); y = x * 2; y.backward()`  
+- 【Mermaid 图表】：Tensor 与 NumPy 互转图
+
+E.2 张量运算  
+- 常用函数：`torch.add`、`sub`、`mul`、`div`、`matmul`、`mm`、`mv`、`dot`、`outer`、`cross`、`sum`、`mean`、`std`、`var`、`min`、`max`、`argmin`、`argmax`、`cumsum`、`cumprod`、`sort`、`argsort`、`unique`、`clamp`、`abs`、`sign`、`exp`、`log`、`sqrt`、`pow`、`sin`、`cos`、`tan`、`sigmoid`、`tanh`、`relu`、`leaky_relu`、`gelu`、`softmax`、`log_softmax`  
+- 用大白话说：对 Tensor 做加减乘除、矩阵乘法、激活函数等数学运算。  
+- 【Python 代码示例】：`z = torch.matmul(a, b); p = torch.softmax(z, dim=1)`  
+- 【Mermaid 图表】：无
+
+E.3 自动微分  
+- 常用类与函数：`torch.autograd`、`torch.autograd.grad`、`.backward()`、`torch.no_grad`、`torch.enable_grad`、`torch.set_grad_enabled`、`torch.infer_mode`、`torch.autograd.Function`、`.register_hook()`  
+- 用大白话说：自动记录计算过程，反向传播时自动算出梯度，不用手动推导导数。  
+- 【Python 代码示例】：`with torch.no_grad(): output = model(input)`  
+- 【Mermaid 图表】：前向传播与反向传播流程图
+
+E.4 神经网络模块  
+- 常用类：`nn.Module`、`nn.Linear`、`nn.Conv2d`、`nn.Conv1d`、`nn.Conv3d`、`nn.MaxPool2d`、`nn.AvgPool2d`、`nn.AdaptiveAvgPool2d`、`nn.Flatten`、`nn.Dropout`、`nn.BatchNorm1d`、`nn.BatchNorm2d`、`nn.LayerNorm`、`nn.ReLU`、`nn.Sigmoid`、`nn.Tanh`、`nn.LeakyReLU`、`nn.ELU`、`nn.SELU`、`nn.GELU`、`nn.Sequential`、`nn.ModuleList`、`nn.ModuleDict`、`nn.Parameter`、`nn.Embedding`、`nn.LSTM`、`nn.GRU`、`nn.RNN`、`nn.MultiheadAttention`、`nn.Transformer`、`nn.TransformerEncoder`、`nn.TransformerDecoder`  
+- 用大白话说：搭建神经网络的积木，全连接、卷积、池化、循环、注意力，组合起来就是模型。  
+- 【Python 代码示例】：`class Net(nn.Module): def __init__(self): super().__init__(); self.fc = nn.Linear(10, 1); def forward(self, x): return self.fc(x)`  
+- 【Mermaid 图表】：CNN 层结构图
+
+E.5 损失函数  
+- 常用类：`nn.MSELoss`、`nn.L1Loss`、`nn.SmoothL1Loss`、`nn.BCELoss`、`nn.BCEWithLogitsLoss`、`nn.CrossEntropyLoss`、`nn.NLLLoss`、`nn.CosineEmbeddingLoss`、`nn.TripletMarginLoss`、`nn.HingeEmbeddingLoss`  
+- 用大白话说：衡量模型预测和真实答案的差距，越小越好，反向传播用它来更新参数。  
+- 【Python 代码示例】：`criterion = nn.CrossEntropyLoss(); loss = criterion(output, target)`  
+- 【Mermaid 图表】：无
+
+E.6 优化器  
+- 常用类：`optim.SGD`、`optim.Adam`、`optim.AdamW`、`optim.RMSprop`、`optim.Adagrad`、`optim.Adadelta`、`optim.Adamax`、`optim.LBFGS`  
+- 常用方法：`.step()`、`zero_grad()`、`.state_dict()`、`.load_state_dict()`  
+- 用大白话说：根据损失函数的梯度，更新模型参数，让模型越来越准。  
+- 【Python 代码示例】：`optimizer = optim.Adam(model.parameters(), lr=1e-3); optimizer.zero_grad(); loss.backward(); optimizer.step()`  
+- 【Mermaid 图表】：优化器更新流程图
+
+E.7 学习率调度  
+- 常用类：`lr_scheduler.StepLR`、`MultiStepLR`、`ExponentialLR`、`CosineAnnealingLR`、`ReduceLROnPlateau`、`OneCycleLR`、`CyclicLR`  
+- 常用方法：`.step()`  
+- 用大白话说：训练过程中逐渐调小学习率，帮助模型更稳定地收敛。  
+- 【Python 代码示例】：`scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1); scheduler.step()`  
+- 【Mermaid 图表】：无
+
+E.8 数据加载  
+- 常用类：`Dataset`、`DataLoader`、`TensorDataset`、`random_split`、`Subset`、`ConcatDataset`、`Sampler`、`BatchSampler`、`DistributedSampler`  
+- 常用参数：`batch_size`、`shuffle`、`num_workers`、`pin_memory`、`collate_fn`、`drop_last`  
+- 用大白话说：把数据分批次喂给模型，支持打乱、多进程加载、自定义整批函数。  
+- 【Python 代码示例】：`loader = DataLoader(dataset, batch_size=32, shuffle=True, num_workers=4)`  
+- 【Mermaid 图表】：数据加载器流程图
+
+E.9 训练循环  
+- 常用方法：`.train()`、`.eval()`、`.zero_grad()`、`.step()`、`.backward()`、`torch.no_grad()`、`.state_dict()`、`torch.save`、`torch.load`、`.load_state_dict()`、`.to(device)`、`.cuda()`、`.cpu()`  
+- 用大白话说：模型训练模式/评估模式切换，梯度清零、反向传播、参数更新，保存和加载模型权重。  
+- 【Python 代码示例】：`model.train(); for x, y in loader: optimizer.zero_grad(); loss = criterion(model(x), y); loss.backward(); optimizer.step(); torch.save(model.state_dict(), 'model.pth')`  
+- 【Mermaid 图表】：PyTorch 训练循环图
+
+E.10 小结  
+- PyTorch 适合图像、文本等深度学习竞赛，掌握 Tensor、nn.Module、损失函数、优化器、DataLoader 即可搭建并训练模型。
+
+---
+
+## 附录 F：常用 Kaggle 评估指标速查表
 
 - 回归指标：RMSE、MAE、RMSPE、R²  
 - 分类指标：准确率、精确率、召回率、F1、AUC、LogLoss  
