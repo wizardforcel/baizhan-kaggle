@@ -1,572 +1,415 @@
-# 附录A Python基础语法速查表
+# 附录A NumPy快速参考
 
-本附录是一份面向零基础初学者的 Python 基础语法速查。如果你从来没写过 Python，或者久违了想快速回忆一下怎么写循环、怎么定义函数，就翻这里。
+NumPy（全称 Numerical Python）是 Python 里做科学计算的基础库，几乎所有机器学习库（pandas、scikit-learn、PyTorch、TensorFlow）都在它的基础上构建。如果你想在 Kaggle 上处理表格数据、图像、或者做任何数值计算，NumPy 是绕不过去的工具。
 
-> **Mermaid 图表：Python 学习路线图**
+本附录面向零基础初学者，用大白话讲清楚 NumPy 最核心的内容：怎么创建数组，数组有哪些属性和索引方式，怎么做数学和统计运算，广播机制和矩阵运算怎么用，怎么产生随机数，怎么改变数组形状和合并拆分，怎么读写文件。
+
+> **Mermaid 图表：NumPy 在数据处理流程中的位置**
 
 ```mermaid
-flowchart TB
-    A[安装 Python] --> B[变量与数据类型]
-    B --> C[条件判断]
-    C --> D[循环]
-    D --> E[函数]
-    E --> F[列表与字典]
-    F --> G[文件读写]
-    G --> H[第三方库：pandas/numpy/scikit-learn]
-    style A fill:#f9f,stroke:#333
-    style H fill:#bbf,stroke:#333
+flowchart LR
+    A[原始数据 CSV/图片] --> B[NumPy 数组 ndarray]
+    B --> C[数据清洗 缺失值/归一化]
+    C --> D[pandas / scikit-learn 建模]
+    D --> E[模型预测]
+    style B fill:#bbf,stroke:#333
 ```
 
 ---
 
-## A.1 安装 Python 与 Hello World
+## A.1 数组创建
 
-### 1. 怎么安装 Python
+NumPy 的核心对象是 **ndarray**（N 维数组），简称“数组”。它和 Python 列表最大的区别：数组里所有元素类型必须相同，且支持对整个数组直接做向量化运算，不用写 `for` 循环。
 
-Python 是一门需要安装到你电脑里才能运行的语言。
-
-- **Windows**：去 [python.org](https://www.python.org) 下载安装包，安装时记得勾选 **"Add Python to PATH"**，不然命令行找不到 python 命令。
-- **macOS**：系统自带旧版 Python，建议用 [Homebrew](https://brew.sh) 安装新版：`brew install python`。
-- **Linux**：大多数发行版自带 Python，直接用即可。
-
-安装完后，打开命令行（Windows 里是 PowerShell 或 cmd，Mac/Linux 里是 Terminal），输入：
+### 安装与导入
 
 ```bash
-python --version
+pip install numpy
 ```
 
-如果看到类似 `Python 3.11.x` 的输出，就说明安装成功。
-
-> 💡 **小窍门**：有些电脑上 `python` 命令不认，但 `py` 能用（Windows 常见），或者得用 `python3`。试几个就知道哪个管用了。
-
-### 2. 写第一行代码
-
-不需要安装任何编辑器，你可以先用 Python 自带的交互式环境。在命令行输入 `python`（或 `python3`），回车，你会看到类似 `>>>` 的提示符。这时候可以直接敲代码：
+Kaggle Notebooks 里 NumPy 已经预装，直接导入，约定成俗起别名 `np`：
 
 ```python
-print("你好，Kaggle！")
+import numpy as np
 ```
 
-回车后，屏幕会打印出：
+### 1. 从列表创建：`np.array()`
 
-```
-你好，Kaggle！
-```
-
-这就是 Python 最简单的程序：`print()` 把括号里的内容显示在屏幕上。
-
-退出交互式环境，输入 `exit()` 回车，或者按 `Ctrl+Z`（Windows）/`Ctrl+D`（Mac/Linux）再回车。
-
----
-
-## A.2 变量与数据类型
-
-### 1. 什么是变量
-
-变量就像一个**贴了标签的盒子**，里面装着数据，你通过标签名就能拿到里面的东西。
+把 Python 列表转成 NumPy 数组，最常用的方法。
 
 ```python
-name = "小明"        # 字符串，用引号括起来
-age = 25             # 整数
-score = 88.5         # 浮点数（小数）
-is_student = True    # 布尔值，True 或 False
+# 一维数组（就像一个列表）
+a = np.array([1, 2, 3, 4, 5])
+print(a)           # [1 2 3 4 5]
+print(type(a))     # <class 'numpy.ndarray'>
+print(a.shape)     # (5,)  1 维，5 个元素
+
+# 二维数组（就像一个表格/矩阵）
+b = np.array([[1, 2, 3],
+              [4, 5, 6]])
+print(b)
+# [[1 2 3]
+#  [4 5 6]]
+print(b.shape)     # (2, 3)  2 行 3 列
 ```
 
-注意几点：
+> 💡 **大白话**：`shape` 告诉你数组的“形状”。一维数组的 shape 是 `(元素个数,)`，二维数组的 shape 是 `(行数, 列数)`。
 
-- 变量名可以用中文、英文、数字和下划线，但不能以数字开头。
-- 推荐用**小写加下划线**的风格，比如 `student_name`，`total_score`。
-- `=` 是**赋值**，不是数学里的“相等”。意思是“把右边的值存到左边的变量里”。
+### 2. 创建全 0 或全 1 数组：`np.zeros()` / `np.ones()`
 
 ```python
-x = 5
-x = x + 1   # 把 x 的旧值加 1，再存回 x。这时候 x 变成 6
-print(x)    # 输出：6
+# 创建一个 3 行 4 列 的全 0 数组
+zeros = np.zeros((3, 4))
+print(zeros)
+# [[0. 0. 0. 0.]
+#  [0. 0. 0. 0.]
+#  [0. 0. 0. 0.]]
+
+# 创建一个 2 行 3 列 的全 1 数组
+ones = np.ones((2, 3))
+print(ones)
+# [[1. 1. 1.]
+#  [1. 1. 1.]]
 ```
 
-如果你读一下这句话：“把 x 加 1 之后，又存回给 x”，就很好理解了。
+注意：`zeros` 和 `ones` 默认创建的是**浮点数**（`0.0`、`1.0`），不是整数。
 
-### 2. 常见数据类型
-
-Python 常用的数据类型就这几种，掌握它们就够应付大部分 Kaggle 比赛了：
-
-| 类型 | 例子 | 说明 |
-|------|------|------|
-| `int`（整数） | `1`, `100`, `-3` | 没有小数的数 |
-| `float`（浮点数/小数） | `3.14`, `0.5`, `-2.0` | 有小数的数 |
-| `str`（字符串） | `"你好"`, `'Kaggle'`, `"123"` | 文本，必须用引号 |
-| `bool`（布尔） | `True`, `False` | 对/错，只有两个值 |
-| `list`（列表） | `[1, 2, 3]`, `["a", "b"]` | 有序的集合，可以重复 |
-| `dict`（字典） | `{"姓名": "小明", "年龄": 25}` | 键值对，用 key 找 value |
-| `tuple`（元组） | `(1, 2, 3)` | 和列表很像，但一旦创建不能修改 |
-| `set`（集合） | `{1, 2, 3}` | 不重复的元素，无序 |
-
-下面看几个最常用的：
-
-**字符串：**
+### 3. 创建等差数列：`np.arange()` / `np.linspace()`
 
 ```python
-greeting = "你好"
-name = "小明"
+# 0 到 9，步长为 1
+print(np.arange(10))      # [0 1 2 3 4 5 6 7 8 9]
 
-# 把两个字符串拼在一起
-message = greeting + "，" + name + "！"
-print(message)   # 输出：你好，小明！
+# 1 到 9，步长为 2（不包含 10）
+print(np.arange(1, 10, 2))  # [1 3 5 7 9]
 
-# 字符串长度
-print(len(name))  # 输出：2
-
-# 取第几个字符（从0开始数）
-print(name[0])    # 输出：小
-print(name[1])    # 输出：明
+# 在 0 到 1 之间均匀取 5 个数（包含两端）
+print(np.linspace(0, 1, 5))  # [0.   0.25 0.5  0.75 1.  ]
 ```
 
-**列表：**
+`arange` 适合“已知步长”的情况，`linspace` 适合“已知起止和个数”的情况。
+
+### 4. 其他常用创建函数
 
 ```python
-scores = [85, 92, 78, 90]
+# 单位矩阵（对角线为 1，其余为 0）
+print(np.eye(3))
+# [[1. 0. 0.]
+#  [0. 1. 0.]
+#  [0. 0. 1.]]
 
-print(scores[0])    # 第一个元素：85
-print(scores[-1])   # 最后一个元素：90
+# 对角线为指定值的矩阵
+print(np.diag([1, 2, 3]))
+# [[1 0 0]
+#  [0 2 0]
+#  [0 0 3]]
 
-scores.append(88)   # 在末尾加一个元素
-print(scores)       # [85, 92, 78, 90, 88]
+# 全是指定值的数组
+print(np.full((2, 3), 7))
+# [[7 7 7]
+#  [7 7 7]]
 
-scores[1] = 95      # 修改第二个元素
-print(scores)       # [85, 95, 78, 90, 88]
-
-print(len(scores))  # 列表长度：5
-```
-
-**字典：**
-
-```python
-student = {
-    "姓名": "小明",
-    "年龄": 20,
-    "成绩": 88
-}
-
-print(student["姓名"])   # 输出：小明
-print(student.get("年龄"))  # 输出：20，用 get 更安全，找不到不会报错
-
-student["班级"] = "三年级二班"   # 新增一个键值对
-student["年龄"] = 21             # 修改已有的值
-
-print(student)   # {'姓名': '小明', '年龄': 21, '成绩': 88, '班级': '三年级二班'}
-```
-
-> 💡 **小窍门**：字典里用 `student["姓名"]` 取值，如果 key 不存在会报错；用 `student.get("姓名")` 找不到会返回 `None`，不报错，新手建议优先用 `get`。
-
----
-
-## A.3 条件判断：if / elif / else
-
-条件判断就是“如果……那么……否则……”的逻辑。
-
-```python
-score = 85
-
-if score >= 90:
-    print("优秀")
-elif score >= 80:
-    print("良好")
-elif score >= 60:
-    print("及格")
-else:
-    print("不及格")
-```
-
-执行顺序：
-
-1. 先看 `score >= 90` 是否成立。如果成立，打印“优秀”，整个 if 块结束，后面的都不看了。
-2. 如果第一个不成立，看 `score >= 80`。
-3. 以此类推，直到某个条件成立，或者全部不成立就执行 `else`。
-
-条件里常用的比较运算符：
-
-| 运算符 | 含义 | 例子 | 结果 |
-|--------|------|------|------|
-| `==` | 相等 | `5 == 5` | `True` |
-| `!=` | 不相等 | `5 != 3` | `True` |
-| `>` | 大于 | `5 > 3` | `True` |
-| `<` | 小于 | `5 < 3` | `False` |
-| `>=` | 大于等于 | `5 >= 5` | `True` |
-| `<=` | 小于等于 | `3 <= 5` | `True` |
-
-逻辑运算符（把多个条件组合在一起）：
-
-| 运算符 | 含义 | 例子 | 结果 |
-|--------|------|------|------|
-| `and` | 且，两个都成立才为真 | `True and False` | `False` |
-| `or` | 或，有一个成立就为真 | `True or False` | `True` |
-| `not` | 非，取反 | `not True` | `False` |
-
-```python
-age = 20
-has_id = True
-
-if age >= 18 and has_id:
-    print("可以进网吧")
-else:
-    print("进不去")
+# 未初始化的数组（值不定，创建快）
+print(np.empty((2, 3)))
 ```
 
 ---
 
-## A.4 循环：for 和 while
+## A.2 数组属性与索引
 
-### 1. for 循环：遍历列表、字典、字符串
-
-`for` 循环的意思是“对集合里的每一个元素，都做一次某件事”。
+### 1. 数组属性
 
 ```python
-fruits = ["苹果", "香蕉", "橘子"]
+a = np.array([[1, 2, 3], [4, 5, 6]])
 
-for fruit in fruits:
-    print("我喜欢吃", fruit)
+print(a.shape)    # (2, 3)   形状：行数 x 列数
+print(a.ndim)     # 2        维度数
+print(a.size)     # 6        元素总个数
+print(a.dtype)    # int64    元素数据类型
+print(a.itemsize) # 8        每个元素占用的字节数
 ```
 
-输出：
-
-```
-我喜欢吃 苹果
-我喜欢吃 香蕉
-我喜欢吃 橘子
-```
-
-`fruit` 是循环变量，每次循环它会依次变成列表里的一个元素。
-
-也可以用 `range()` 生成数字序列：
+### 2. 改变形状（不改变数据）
 
 ```python
-# 打印 0 到 4
-for i in range(5):
-    print(i)
+a = np.array([1, 2, 3, 4, 5, 6])
 
-# 打印 1 到 5
-for i in range(1, 6):
-    print(i)
+print(a.reshape((2, 3)))
+# [[1 2 3]
+#  [4 5 6]]
 
-# 打印 1, 3, 5（步长为2）
-for i in range(1, 6, 2):
-    print(i)
+print(a.ravel())      # 展平成一维（返回视图）
+print(a.flatten())    # 展平成一维（返回副本）
+
+print(a.T)            # 转置，行列互换
+print(a.transpose())  # 和 .T 一样
 ```
 
-遍历字典：
+### 3. 一维数组索引
+
+下标从 0 开始，也可以用负数从后往前数：
 
 ```python
-student = {"姓名": "小明", "年龄": 20, "成绩": 88}
+a = np.array([10, 20, 30, 40, 50])
 
-for key in student:
-    print(key, ":", student[key])
-
-# 或者同时拿 key 和 value
-for key, value in student.items():
-    print(key, "=", value)
+print(a[0])   # 10   第一个元素
+print(a[1])   # 20   第二个元素
+print(a[-1])  # 50   最后一个元素
+print(a[-2])  # 40   倒数第二个元素
 ```
 
-### 2. while 循环：只要条件成立就一直循环
+### 4. 切片：取一部分元素
+
+切片语法是 `数组[开始:结束:步长]`，开始包含，结束不包含。
 
 ```python
-count = 0
-while count < 3:
-    print("第", count, "次")
-    count = count + 1   # 别忘了修改 count，不然会死循环！
+a = np.array([10, 20, 30, 40, 50])
+
+print(a[1:4])    # [20 30 40]   从下标 1 到下标 3（不含 4）
+print(a[:3])     # [10 20 30]   从开头到下标 2
+print(a[2:])     # [30 40 50]   从下标 2 到末尾
+print(a[::2])    # [10 30 50]   每隔一个取一个
+print(a[::-1])   # [50 40 30 20 10]  倒序
 ```
 
-输出：
+### 5. 二维数组索引
 
-```
-第 0 次
-第 1 次
-第 2 次
-```
-
-⚠️ **死循环陷阱**：如果 `while` 里面的条件永远成立，程序就会一直跑下去不停下来。比如忘记写 `count = count + 1`，`count < 3` 永远为真，这就是死循环。遇到死循环，按 `Ctrl+C` 强制停止。
-
-### 3. break 和 continue
-
-- `break`：立刻跳出整个循环，后面的循环都不执行了。
-- `continue`：跳过本次循环剩下的代码，直接开始下一次循环。
+二维数组用 `数组[行, 列]` 来索引：
 
 ```python
-for i in range(1, 6):
-    if i == 3:
-        break   # i 等于 3 时，直接结束循环
-    print(i)
+b = np.array([[1, 2, 3],
+              [4, 5, 6],
+              [7, 8, 9]])
 
-# 输出：1, 2
+print(b[0, 0])    # 1   第一行第一列
+print(b[0, 2])    # 3   第一行第三列
+print(b[2, 1])    # 8   第三行第二列
+print(b[-1, -1])  # 9   最后一行最后一列
+
+# 二维数组切片
+print(b[0:2, 0:2])   # [[1 2]
+                     #  [4 5]]   前 2 行前 2 列
+print(b[1, :])       # [4 5 6]   第二行所有列
+print(b[:, 1])       # [2 5 8]   第二列所有行
 ```
 
-```python
-for i in range(1, 6):
-    if i == 3:
-        continue   # i 等于 3 时，跳过打印，直接下一次
-    print(i)
+### 6. 花式索引与布尔索引
 
-# 输出：1, 2, 4, 5
+```python
+a = np.array([10, 20, 30, 40, 50])
+
+# 花式索引：传入一个下标数组
+print(a[[0, 2, 4]])   # [10 30 50]
+
+# 布尔索引：只取满足条件的元素
+print(a[a > 25])      # [30 40 50]
+
+# np.where：找出满足条件的元素下标
+print(np.where(a > 25))  # (array([2, 3, 4]),)
+```
+
+> ⚠️ **重要陷阱**：NumPy 的切片返回的是**视图**（view），不是副本。你通过切片修改了元素，原数组也会跟着变。如果你想要一个完全独立的副本，要用 `.copy()`：
+
+```python
+a = np.array([1, 2, 3])
+b = a[0:2]      # b 是 a 的视图
+b[0] = 999
+print(a)        # [999 2 3]  原数组也变了！
+
+c = a[0:2].copy()  # c 是独立副本
+c[0] = 0
+print(a)        # [999 2 3]  原数组不变
 ```
 
 ---
 
-## A.5 函数：定义与调用
+## A.3 数学与统计函数
 
-函数就是把一段可以重复使用的代码包起来，起个名字，需要的时候调用一下就行。
-
-### 1. 定义函数
+NumPy 提供了大量现成的数学和统计函数，可以直接对整个数组或某一轴求值。
 
 ```python
-def 问候(名字):
-    print("你好，", 名字)
+a = np.array([[1, 2, 3],
+              [4, 5, 6]])
 
-# 调用函数
-问候("小明")
-问候("小红")
+print(a.sum())        # 21   所有元素之和
+print(a.mean())       # 3.5  所有元素的平均值
+print(a.std())        # 1.414...  标准差
+print(a.var())        # 2.0   方差
+print(a.min())        # 1    最小值
+print(a.max())        # 6    最大值
+print(a.argmin())     # 0    最小值的下标（展开后）
+print(a.argmax())     # 5    最大值的下标（展开后）
+print(a.median())     # 3.5  中位数
+print(np.percentile(a, 50))  # 3.5  百分位数
+print(np.diff(a))     # [[1 1]
+                     #  [1 1]]   相邻元素之差
+print(np.cumsum(a))   # [ 1  3  6 10 15 21]  累积和
+print(np.sort(a))     # [[1 2 3]
+                     #  [4 5 6]]  排序
+print(np.argsort(a))  # [[0 1 2]
+                     #  [0 1 2]]  排序后的下标
+print(np.unique(a))   # [1 2 3 4 5 6]  去重后的唯一值
 ```
 
-输出：
-
-```
-你好， 小明
-你好， 小红
-```
-
-`def` 是定义函数的关键字，`问候` 是函数名，`名字` 是参数（函数外部传进来的数据）。
-
-### 2. 返回值：return
-
-有些函数不只是打印，还要把结果“返回”给调用者，这样你可以把结果存起来继续用。
+按轴求值（`axis` 参数）：
 
 ```python
-def 加法(a, b):
-    return a + b
+# axis=0：竖着消掉行方向，对每一列做运算（按列）
+print(a.sum(axis=0))   # [5 7 9]
 
-结果 = 加法(3, 5)
-print(结果)   # 输出：8
+# axis=1：横着消掉列方向，对每一行做运算（按行）
+print(a.sum(axis=1))   # [6 15]
 ```
 
-`return` 后面跟什么，调用这个函数就会得到什么。如果没有 `return`，函数默认返回 `None`（表示空）。
-
-```python
-def 只打印不返回(a, b):
-    print(a + b)
-
-结果 = 只打印不返回(3, 5)
-print(结果)   # 输出：None
-```
-
-### 3. 参数默认值
-
-```python
-def 打招呼(名字="朋友"):
-    print("你好，", 名字)
-
-打招呼()        # 输出：你好， 朋友
-打招呼("小明")  # 输出：你好， 小明
-```
-
-如果调用时不传参数，就用默认值 `"朋友"`。
-
-> 💡 **小窍门**：在 Kaggle 和机器学习里，你会经常自己写函数来做数据清洗、模型训练、预测等，把重复的代码封装成函数可以让脚本短很多，也很不容易出错。
+> 💡 **记住口诀**：`axis=0` 竖着算（按列），`axis=1` 横着算（按行）。
 
 ---
 
-## A.6 列表推导式：一行代码生成列表
+## A.4 广播机制与矩阵运算
 
-列表推导式是 Python 的“糖衣语法”，用极少的代码就能生成一个新列表。
+### 1. 广播机制
 
-```python
-# 普通写法：生成 0 到 9 的平方
-squares = []
-for i in range(10):
-    squares.append(i * i)
-
-# 列表推导式写法：一行搞定
-squares = [i * i for i in range(10)]
-print(squares)   # [0, 1, 4, 9, 16, 25, 36, 49, 64, 81]
-```
-
-还可以加条件：
+广播让不同形状的数组能直接相加相乘，NumPy 会自动把较小的数组“扩展”到和大数组一样的形状。
 
 ```python
-# 只保留偶数的平方
-even_squares = [i * i for i in range(10) if i % 2 == 0]
-print(even_squares)   # [0, 4, 16, 36, 64]
+a = np.array([[1, 2, 3],
+              [4, 5, 6]])
+
+print(a + 10)   # [[11 12 13]
+                #  [14 15 16]]  每个元素都加 10
+
+print(a * 2)    # [[ 2  4  6]
+                #  [ 8 10 12]]  每个元素都乘 2
 ```
 
-`i % 2 == 0` 的意思是“除以 2 余数为 0”，也就是偶数。
+### 2. 矩阵运算
+
+```python
+A = np.array([[1, 2],
+              [3, 4]])
+B = np.array([[5, 6],
+              [7, 8]])
+
+print(A @ B)           # [[19 22]
+                       #  [43 50]]  矩阵乘法（@ 运算符）
+print(np.dot(A, B))    # 和 @ 一样
+print(np.transpose(A)) # [[1 3]
+                       #  [2 4]]  转置
+
+print(np.diagonal(A))  # [1 4]  对角线元素
+print(np.trace(A))     # 5    对角线元素之和
+
+# 线性代数
+print(np.linalg.inv(A))   # A 的逆矩阵
+print(np.linalg.det(A))   # A 的行列式
+print(np.linalg.norm(A))  # A 的范数
+vals, vecs = np.linalg.eig(A)   # 特征值和特征向量
+print(np.linalg.svd(A))   # 奇异值分解
+```
+
+---
+
+## A.5 随机数
+
+```python
+# 设置随机种子，让每次运行的“随机”结果都一样（调试时很有用）
+np.random.seed(42)
+
+# 生成 0 到 1 之间的随机小数
+print(np.random.rand(2, 3))     # 2 行 3 列
+print(np.random.randn(2, 3))    # 标准正态分布（均值 0，标准差 1）
+
+# 生成随机整数
+print(np.random.randint(0, 10, size=(3, 3)))  # 0 到 9 之间的随机整数
+
+print(np.random.normal(0, 1, (2, 3)))   # 正态分布，均值 0，标准差 1
+print(np.random.uniform(0, 1, (2, 3)))  # 均匀分布，0 到 1 之间
+
+# 从数组中随机选取
+arr = np.array([1, 2, 3, 4, 5])
+print(np.random.choice(arr, size=3))   # 随机选 3 个元素
+
+np.random.shuffle(arr)   # 打乱数组顺序（原地修改）
+print(arr)
+
+print(np.random.permutation(arr))  # 返回打乱后的新数组，原数组不变
+```
+
+> 💡 **小窍门**：做机器学习划分训练集/验证集时，经常要用随机数。为了让实验可重复（你和别人跑同样的代码得到同样的结果），记得在开头设 `np.random.seed(42)`，42 只是个常用数字，换成其他数字也行。
+
+---
+
+## A.6 形状操作与合并
+
+```python
+a = np.array([1, 2, 3])
+b = np.array([4, 5, 6])
+
+# 按行/列合并
+print(np.concatenate([a, b]))      # [1 2 3 4 5 6]
+print(np.vstack([a, b]))           # [[1 2 3]
+                                   #  [4 5 6]]  垂直堆叠
+print(np.hstack([a, b]))           # [1 2 3 4 5 6]  水平堆叠
+print(np.stack([a, b], axis=1))    # [[1 4]
+                                   #  [2 5]
+                                   #  [3 6]]  沿新轴堆叠
+
+# 拆分
+arr = np.arange(12)
+print(np.split(arr, 3))            # 把 arr 分成 3 份
+print(np.hsplit(arr.reshape(3, 4), 2))  # 按列分成 2 份
+print(np.vsplit(arr.reshape(3, 4), 3))  # 按行分成 3 份
+
+# 重复与扩维
+print(np.tile(a, 2))               # [1 2 3 1 2 3]  重复
+print(np.repeat(a, 2))             # [1 1 2 2 3 3]  每个元素重复
+print(np.expand_dims(a, axis=1))   # [[1]
+                                   #  [2]
+                                   #  [3]]  增加一维
+print(np.squeeze(np.expand_dims(a, axis=1)))  # [1 2 3]  去掉长度为 1 的维度
+```
 
 ---
 
 ## A.7 文件读写
 
-### 1. 读写文本文件
-
 ```python
-# 写入文件（会覆盖原有内容）
-with open("output.txt", "w", encoding="utf-8") as f:
-    f.write("第一行内容\n")
-    f.write("第二行内容\n")
+a = np.array([[1, 2, 3], [4, 5, 6]])
 
-# 读取文件
-with open("output.txt", "r", encoding="utf-8") as f:
-    内容 = f.read()
-    print(内容)
+# 保存为 .npy 文件（NumPy 原生格式）
+np.save('data.npy', a)
+a2 = np.load('data.npy')   # 读取 .npy 文件
+
+# 保存多个数组到 .npz 文件
+np.savez('data.npz', x=a, y=a + 1)
+np.savez_compressed('data_compressed.npz', x=a, y=a + 1)  # 压缩保存
+
+# 从文本文件读取（CSV 等）
+# np.genfromtxt('data.csv', delimiter=',')
+# np.loadtxt('data.txt')
 ```
 
-`with open(...) as f:` 是 Python 推荐的写法，好处是不用手动关闭文件，程序退出 `with` 块后文件会自动关闭，不会泄漏资源。
-
-- `"w"`：写入模式，如果文件不存在会创建，存在会覆盖。
-- `"r"`：读取模式。
-- `"a"`：追加模式，在文件末尾加内容，不覆盖。
-- `encoding="utf-8"`：必须加，不然中文可能会乱码。
-
-### 2. 读写 CSV 文件（用 pandas）
-
-在 Kaggle 里，几乎都用 `pandas` 读 CSV，比原生的 `open` 方便多了：
-
-```python
-import pandas as pd
-
-# 读取 CSV
-df = pd.read_csv("train.csv")
-
-# 查看前 5 行
-print(df.head())
-
-# 查看基本信息
-print(df.info())
-
-# 保存为新的 CSV
-df.to_csv("output.csv", index=False)
-```
-
-`index=False` 表示不要把行号也写进 CSV 文件里，Kaggle 提交时通常需要这个。
+> 💡 **小窍门**：`.npy` 适合保存单个数组，`.npz` 适合保存多个数组。如果数据是 CSV 格式，通常直接用 pandas 的 `read_csv` 更方便。
 
 ---
 
-## A.8 模块与包：import 其他代码
+## A.8 小结
 
-Python 的强大之处在于有大量现成的库（别人写好的代码），你只需要 `import` 进来就能用。
+本附录快速过了一遍 NumPy 最常用的操作：
 
-```python
-import math
+1. **数组创建**：`np.array()`、`np.zeros()`、`np.ones()`、`np.arange()`、`np.linspace()`、`np.eye()`、`np.diag()`、`np.full()`、`np.empty()`、`np.random.rand/randint/randn/normal/uniform/choice`。
+2. **数组属性**：`.shape`、`.ndim`、`.size`、`.dtype`、`.itemsize`。
+3. **索引与切片**：`a[i]`、`a[i, j]`、`a[start:end]`，负数下标从后往前数；花式索引 `a[[0, 2, 4]]`；布尔索引 `a[a > 4]`；`np.where()`。
+4. **视图与副本**：切片返回视图，修改会影响原数组；要独立副本用 `.copy()`。
+5. **形状变换**：`.reshape()`、`.ravel()`、`.flatten()`、`.T`/`.transpose()`。
+6. **数学与统计**：`sum()`、`mean()`、`std()`、`var()`、`min()`、`max()`、`argmin()`、`argmax()`、`median()`、`percentile()`、`diff()`、`cumsum()`、`sort()`、`argsort()`、`unique()`，可配合 `axis=0/1`。
+7. **广播与矩阵运算**：`+` `-` `*` `/`、`@` 或 `np.dot()`、`.T`、`np.linalg.inv/det/norm/eig/svd`。
+8. **随机数**：`np.random.seed()`、`rand()`、`randn()`、`randint()`、`normal()`、`uniform()`、`choice()`、`shuffle()`、`permutation()`。
+9. **形状操作与合并**：`concatenate()`、`vstack()`、`hstack()`、`stack()`、`split()`、`hsplit()`、`vsplit()`、`tile()`、`repeat()`、`expand_dims()`、`squeeze()`。
+10. **文件读写**：`np.save()`/`np.load()`、`np.savez()`/`np.savez_compressed()`。
 
-print(math.sqrt(16))   # 4.0，开平方根
-print(math.pi)         # 3.141592653589793，圆周率
-```
-
-也可以只导入某个函数：
-
-```python
-from math import sqrt, pi
-
-print(sqrt(16))   # 4.0
-print(pi)         # 3.141592653589793
-```
-
-或者给库起个短别名（pandas 和 numpy 几乎都这么用）：
-
-```python
-import pandas as pd
-import numpy as np
-```
-
-这样之后就用 `pd.read_csv()`、`np.array()` 之类的，不用每次都写全称。
+掌握这些，你就能读懂大部分 Kaggle Notebook 里的 NumPy 代码了。
 
 ---
 
-## A.9 错误处理：try / except
-
-新手写代码最常遇到的就是报错。`try / except` 可以让程序遇到错误时不崩溃，而是执行你指定的“备用方案”。
-
-```python
-try:
-    x = 10 / 0   # 除以零会报错
-except ZeroDivisionError:
-    print("不能除以零！")
-```
-
-输出：
-
-```
-不能除以零！
-```
-
-更通用的写法，捕获所有错误：
-
-```python
-try:
-    这里可能会出错的代码
-except Exception as e:
-    print("出错了，原因是:", e)
-```
-
-`e` 会拿到错误的具体信息，方便你排查。
-
----
-
-## A.10 类与对象（简单了解即可）
-
-做 Kaggle 比赛，大部分时候只用函数和脚本，很少需要写类。但了解一点基础概念不会有坏处。
-
-类是对象的“模板”，对象是根据类“制造”出来的具体实例。
-
-```python
-class 学生:
-    def __init__(self, 名字, 年龄):
-        self.名字 = 名字
-        self.年龄 = 年龄
-
-    def 打招呼(self):
-        print("你好，我是", self.名字)
-
-# 创建对象
-s1 = 学生("小明", 20)
-s2 = 学生("小红", 19)
-
-s1.打招呼()   # 输出：你好，我是 小明
-s2.打招呼()   # 输出：你好，我是 小红
-```
-
-- `__init__` 是构造方法，创建对象时自动调用，用于初始化数据。
-- `self` 代表对象本身，`self.名字` 就是“这个对象的名字”。
-
----
-
-## A.11 常见错误速查
-
-| 报错信息 | 意思 | 常见原因 |
-|----------|------|----------|
-| `SyntaxError` | 语法错误 | 括号没闭合、冒号忘了写、缩进不对 |
-| `NameError` | 变量未定义 | 用了没定义过的变量，或者变量名拼写错了 |
-| `TypeError` | 类型错误 | 把字符串和数字相加、对不可调用对象调用等 |
-| `IndexError` | 索引越界 | 访问列表不存在的下标，比如列表只有3个元素却访问第4个 |
-| `KeyError` | 字典键不存在 | 访问字典里不存在的 key |
-| `FileNotFoundError` | 文件不存在 | 路径写错了，或者文件不在那个目录下 |
-| `IndentationError` | 缩进错误 | Python 对缩进非常敏感，同一代码块里缩进必须一致 |
-
-> 💡 **缩进提醒**：Python 用缩进（通常是4个空格）来表示代码块归属，不像其他语言用花括号 `{}`。`if`、`for`、`while`、`def`、`class` 后面必须换行并缩进。
-
----
-
-## A.12 小结
-
-本附录快速过了一遍 Python 最常用的基础语法：
-
-1. **变量与数据类型**：`int`, `float`, `str`, `bool`, `list`, `dict`。
-2. **条件判断**：`if / elif / else`。
-3. **循环**：`for`、`while`，配合 `break` / `continue`。
-4. **函数**：`def` 定义，`return` 返回值，支持默认参数。
-5. **列表推导式**：一行代码生成列表。
-6. **文件读写**：`with open(...)` 和 `pandas.read_csv()`。
-7. **模块导入**：`import`，常用 `pd`、`np` 别名。
-8. **错误处理**：`try / except`。
-9. **类与对象**：简单了解即可，Kaggle 里不常用。
-
-如果你在写比赛代码时忘了某个语法怎么写，回来翻这张速查表就行。更多深入内容，可以参考 Python 官方文档或《Python 编程：从入门到实践》。
-
----
-
-> **下一步建议**：掌握这些基础后，建议继续阅读附录B（NumPy 快速入门）和附录C（pandas 数据处理），它们是 Kaggle 表格数据比赛的两大核心工具。
+> **下一步建议**：NumPy 处理的是“数值数组”，但实际比赛数据往往带有列名、缺失值、类别特征，这时候需要更强大的工具——**pandas**。建议继续阅读附录 B（pandas 快速参考）。
