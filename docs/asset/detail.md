@@ -1416,3 +1416,12 @@ E.10 小结
 - 所有代码必须可在 Kaggle Notebooks 免费环境中直接运行
 - 语言风格：详细直白，大白话，允许适当废话使文本流畅自然
 - 每章结尾附「对应 writeup 列表」，方便读者对照 `docs/kaggle-writeups/` 中的原始赛题深入
+
+---
+
+## 更新历史
+
+| 日期 | 版本 | 更新内容 | 备注 |
+|------|------|----------|------|
+| 2026-11-17 | v1.0 | 根据细纲编写全部附录 A-G，逐章保存到 `docs/Appendix{A-G}/index.md` 并提交推送 | Appendix A：Python 基础语法速查表；Appendix B：NumPy 快速入门；Appendix C：pandas 数据处理快速入门；Appendix D：数据可视化快速入门（matplotlib/seaborn）；Appendix E：scikit-learn 机器学习快速入门；Appendix F：Kaggle 提交与 Notebook 使用指南；Appendix G：常见竞赛算法速查（XGBoost/LightGBM/CatBoost） |
+| 2026-11-17 | v1.0 | 检查细纲 `docs/asset/detail.md` 附录部分，确认已包含附录 E：PyTorch 快速参考，无需额外插入 | 细纲附录 E 第 1338-1399 行 |
