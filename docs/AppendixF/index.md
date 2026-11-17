@@ -1,228 +1,279 @@
-# 附录F Kaggle 提交与 Notebook 使用指南
+# 附录F 常用 Kaggle 评估指标速查表
 
-学会了写模型，接下来就是把预测结果提交到 Kaggle，看到自己的排名。本附录手把手教你如何在 Kaggle 上提交结果、怎么用 Kaggle Notebooks 写代码、怎么看排行榜、怎么避免常见的提交错误。
+Kaggle 比赛的排行榜分数由评估指标决定。选错指标优化方向，就算本地分再高，排行榜上也可能掉链子。本附录把回归和分类任务的常用指标汇总成一张速查表，每个指标都说明了计算公式、适用场景、以及“越大越好”还是“越小越好”。
 
-> **Mermaid 图表：Kaggle 提交完整流程**
+> **Mermaid 图表：指标选择决策树**
 
 ```mermaid
-flowchart LR
-    A[加入比赛] --> B[下载数据]
-    B --> C[Notebook 写代码训练模型]
-    C --> D[生成预测文件]
-    D --> E[检查格式与 sample_submission 一致]
-    E --> F[提交到 Leaderboard]
-    F --> G[查看分数和排名]
-    style F fill:#bbf,stroke:#333
+flowchart TD
+    A[你的任务类型是什么？] --> B[回归：预测连续数值]
+    A --> C[分类：预测类别或概率]
+    B --> D[误差对异常值敏感？] --> E[是：用 RMSE]
+    D --> F[否：用 MAE]
+    B --> G[需要相对误差？] --> H[是：用 RMSPE]
+    G --> I[否：用 RMSE/MAE/R²]
+    C --> J[类别平衡？] --> K[是：用准确率]
+    J --> L[否：用 AUC/F1/LogLoss]
+    C --> M[需要概率校准？] --> N[是：用 LogLoss]
+    M --> O[否：用 AUC/F1]
+    style E fill:#bbf,stroke:#333
+    style N fill:#bbf,stroke:#333
 ```
 
 ---
 
-## F.1 加入比赛
+## F.1 回归指标
 
-参加 Kaggle 比赛的第一步是注册账号并加入比赛。
+回归任务预测的是连续数值（如房价、销售额、气温）。所有回归指标都**越小越好**（除了 R²，越大越好）。
 
-1. 打开 [kaggle.com](https://www.kaggle.com)，用 Google 账号或邮箱注册登录。
-2. 找到你想参加的比赛，进入比赛主页。
-3. 点击页面右上角的 **"Join Competition"** 按钮。
-4. 阅读比赛规则，勾选“我接受比赛规则”，点击确认。
+### 1. RMSE（均方根误差，Root Mean Squared Error）
 
-**只有加入比赛后，你才能**：下载数据、提交结果、查看排行榜、在讨论区发帖。
+**公式：**
 
-> 💡 **小窍门**：有些比赛（尤其是有奖金的）要求获奖者完成**实名认证**（身份验证），否则无法领取奖金。建议注册后尽早完成实名认证，免得到时候领奖卡壳。
+$$RMSE = \sqrt{\frac{1}{n}\sum_{i=1}^{n}(y_i - \hat{y}_i)^2}$$
+
+**大白话：** 把预测值和真实值的差平方，求平均，再开平方根。结果和目标变量单位一致（比如预测房价，RMSE 单位就是“元”），好理解。因为对误差做了平方，**大误差会被放大**，所以 RMSE 对异常值很敏感。
+
+**适用场景：** 最常用的回归指标，Kaggle 很多回归比赛（如 House Prices）默认用 RMSE。
+
+**越小越好。**
+
+### 2. MAE（平均绝对误差，Mean Absolute Error）
+
+**公式：**
+
+$$MAE = \frac{1}{n}\sum_{i=1}^{n}|y_i - \hat{y}_i|$$
+
+**大白话：** 把预测值和真实值的差取绝对值，求平均。没有平方，所以**大误差不会被过度放大**，对异常值比 RMSE 更稳健。
+
+**适用场景：** 当数据里有异常值，或者你不希望少数大误差主导分数时，用 MAE。
+
+**越小越好。**
+
+### 3. RMSPE（均方根百分比误差，Root Mean Squared Percentage Error）
+
+**公式：**
+
+$$RMSPE = \sqrt{\frac{1}{n}\sum_{i=1}^{n}\left(\frac{y_i - \hat{y}_i}{y_i}\right)^2}$$
+
+**大白话：** 把误差除以真实值，变成“百分比误差”，再求 RMSE。关注的是**相对误差**而不是绝对误差。
+
+**适用场景：** 当目标变量数值跨度很大（比如房价从 10 万到 1000 万），你更关心“预测偏了多少比例”而不是“偏了多少绝对值”时，用 RMSPE。Kaggle 的 Rossmann 门店销售、Blue Book 推土机比赛都用 RMSPE。
+
+> ⚠️ 注意：如果真实值 $y_i$ 有 0，分母会为 0，需要预处理避免。
+
+**越小越好。**
+
+### 4. R²（决定系数，Coefficient of Determination）
+
+**公式：**
+
+$$R^2 = 1 - \frac{\sum_{i=1}^{n}(y_i - \hat{y}_i)^2}{\sum_{i=1}^{n}(y_i - \bar{y})^2}$$
+
+**大白话：** 模型比“直接预测平均值”好多少。R² = 1 表示完美预测，R² = 0 表示和预测平均值一样差，R² < 0 表示比平均值还差。
+
+**适用场景：** 当你想知道模型解释了多少比例的方差时，用 R²。但 R² 对异常值敏感，且不一定和排行榜指标一致，通常只作为参考。
+
+**越接近 1 越好。**
+
+### 回归指标对比
+
+| 指标 | 公式特点 | 对异常值敏感度 | 单位 | 越小越好 / 越大越好 |
+|------|---------|--------------|------|-------------------|
+| RMSE | 误差平方后开根 | 敏感 | 和目标变量一致 | 越小越好 |
+| MAE | 误差绝对值 | 较稳健 | 和目标变量一致 | 越小越好 |
+| RMSPE | 相对误差平方后开根 | 敏感 | 百分比 | 越小越好 |
+| R² | 1 - 残差平方和/总平方和 | 敏感 | 无单位（0~1） | 越大越好（接近 1） |
 
 ---
 
-## F.2 下载数据
+## F.2 分类指标
 
-进入比赛的 **Data** 页面，你会看到三份核心文件（详见正文第1章）：
+分类任务预测的是类别（0/1、猫/狗、信用等级）或概率。分类指标分两类：**基于类别预测**（0/1）和**基于概率预测**（0~1 的概率）。
 
-| 文件 | 含义 |
-|------|------|
-| `train.csv` | 训练集，有特征也有目标标签 |
-| `test.csv` | 测试集，只有特征，没有目标标签 |
-| `sample_submission.csv` | 提交格式模板，ID 列 + 一个空的预测列 |
+### 混淆矩阵（Confusion Matrix）
 
-### 方式1：手动下载
+很多分类指标都基于混淆矩阵。假设二分类，正例为 1，负例为 0：
 
-在 Data 页面点击每个文件旁边的下载图标，下载到本地解压后使用。
+| | 预测正例 | 预测负例 |
+|---|---------|---------|
+| **实际正例** | TP（真正例） | FN（假负例，漏检） |
+| **实际负例** | FP（假正例，误报） | TN（真负例） |
 
-### 方式2：在 Kaggle Notebooks 里直接用
+- **TP (True Positive)**：实际是正例，预测也是正例。
+- **TN (True Negative)**：实际是负例，预测也是负例。
+- **FP (False Positive)**：实际是负例，预测成了正例（误报）。
+- **FN (False Negative)**：实际是正例，预测成了负例（漏检）。
 
-如果你在 Kaggle Notebooks 里写代码，数据已经自动挂载到了 `/kaggle/input/<比赛目录名>/` 目录，不需要手动下载：
+### 1. 准确率（Accuracy）
+
+**公式：**
+
+$$\text{Accuracy} = \frac{TP + TN}{TP + TN + FP + FN}$$
+
+**大白话：** 预测对的样本占总样本的比例。最直观的指标。
+
+**适用场景：** 类别比例平衡时（比如正负例各一半），用准确率。但如果类别极度不平衡（比如 99% 是负例），全预测负例也有 99% 的准确率，这时候准确率就没意义了。
+
+**越大越好。**
+
+### 2. 精确率（Precision）
+
+**公式：**
+
+$$\text{Precision} = \frac{TP}{TP + FP}$$
+
+**大白话：** 在所有被预测为正例的样本中，真正是正例的比例。回答问题：“我预测为正例的，有多少是真的正例？”
+
+**适用场景：** 误报代价高时，用精确率。比如垃圾邮件过滤，误把正常邮件判成垃圾（FP）会让用户丢失重要邮件。
+
+**越大越好。**
+
+### 3. 召回率（Recall / 灵敏度，Sensitivity）
+
+**公式：**
+
+$$\text{Recall} = \frac{TP}{TP + FN}$$
+
+**大白话：** 在所有实际为正例的样本中，被预测为正例的比例。回答问题：“所有真正的正例，我有多少被找出来了？”
+
+**适用场景：** 漏检代价高时，用召回率。比如疾病筛查，漏掉真正的病人（FN）可能耽误治疗，甚至危及生命。
+
+**越大越好。**
+
+### 4. F1 分数
+
+**公式：**
+
+$$F1 = 2 \times \frac{\text{Precision} \times \text{Recall}}{\text{Precision} + \text{Recall}}$$
+
+**大白话：** 精确率和召回率的调和平均。两个都高，F1 才高；有任意一个很低，F1 也会被拉低。
+
+**适用场景：** 类别不平衡时，比准确率更可靠。既想控制误报，又想控制漏检，用 F1 分数。
+
+**越大越好。**
+
+### 5. AUC-ROC（曲线下面积，Area Under the ROC Curve）
+
+**大白话：** ROC 曲线是“真正例率 vs 假正例率”的曲线，AUC 是这条曲线下面的面积。AUC = 1 表示完美分类器，AUC = 0.5 表示随机猜测，AUC < 0.5 表示比随机猜测还差。
+
+AUC 的一个直观解释：**随机抽一个正例和一个负例，模型给正例的概率高于负例的概率，这个概率就是 AUC。**
+
+**适用场景：** 关注模型对样本的排序能力（谁更可能是正例），而不是具体的分类阈值。类别不平衡时，AUC 比准确率更可靠。Kaggle 很多分类比赛（如信用评分）用 AUC 或 LogLoss。
+
+**越接近 1 越好。**
+
+### 6. LogLoss（对数损失，Logarithmic Loss / 交叉熵）
+
+**公式（二分类）：**
+
+$$\text{LogLoss} = -\frac{1}{n}\sum_{i=1}^{n}\left[y_i \log(\hat{p}_i) + (1-y_i) \log(1-\hat{p}_i)\right]$$
+
+其中 $y_i$ 是真实标签（0 或 1），$\hat{p}_i$ 是模型预测的正例概率。
+
+**大白话：** 模型预测的概率越接近真实标签，LogLoss 越小。如果真实是正例却预测概率接近 0，惩罚会非常大（$\log(0)$ 趋向负无穷）。
+
+**适用场景：** 关注概率预测的**校准程度**（预测概率是否可信），而不仅仅是排序。Kaggle 很多分类比赛（如 Quora 问题对去重、信用评分）用 LogLoss 作为评估指标。
+
+**越小越好。**
+
+> ⚠️ 注意：LogLoss 需要模型输出概率（0~1 之间），而不是 0/1 标签。如果你只提交了 0/1 标签，无法计算 LogLoss。
+
+### 分类指标对比
+
+| 指标 | 基于什么 | 对类别不平衡的稳健性 | 核心关注点 | 越大越好 / 越小越好 |
+|------|---------|-------------------|-----------|-------------------|
+| 准确率 | 类别预测 (0/1) | 差（不平衡时不可靠） | 整体正确比例 | 越大越好 |
+| 精确率 | 类别预测 (0/1) | 中 | 减少误报 | 越大越好 |
+| 召回率 | 类别预测 (0/1) | 中 | 减少漏检 | 越大越好 |
+| F1 分数 | 类别预测 (0/1) | 较好 | 精确率和召回率平衡 | 越大越好 |
+| AUC-ROC | 概率预测 (0~1) | 好 | 样本排序能力 | 越接近 1 越好 |
+| LogLoss | 概率预测 (0~1) | 好 | 概率校准程度 | 越小越好 |
+
+---
+
+## F.3 Python 代码示例：sklearn 一键计算各指标
 
 ```python
-import os
-import pandas as pd
+import numpy as np
+from sklearn.metrics import (
+    mean_squared_error, mean_absolute_error, r2_score,
+    accuracy_score, precision_score, recall_score, f1_score,
+    roc_auc_score, log_loss, confusion_matrix, classification_report
+)
 
-competition_dir = "/kaggle/input/<比赛目录名>/"   # 把 <比赛目录名> 换成实际的，比如 house-prices-regression
+# ========== 回归指标 ==========
+y_true = np.array([3.0, -0.5, 2.0, 7.0])
+y_pred = np.array([2.5, 0.0, 2.0, 8.0])
 
-print(os.listdir(competition_dir))   # 看看目录里有哪些文件
+rmse = np.sqrt(mean_squared_error(y_true, y_pred))
+mae = mean_absolute_error(y_true, y_pred)
+r2 = r2_score(y_true, y_pred)
 
-train = pd.read_csv(competition_dir + "train.csv")
-test  = pd.read_csv(competition_dir + "test.csv")
-sample_sub = pd.read_csv(competition_dir + "sample_submission.csv")
+print(f"回归 - RMSE: {rmse:.4f}, MAE: {mae:.4f}, R²: {r2:.4f}")
+
+# RMSPE（sklearn 没有内置，手动计算）
+def rmspe(y_true, y_pred):
+    return np.sqrt(np.mean(((y_true - y_pred) / y_true) ** 2))
+
+print(f"回归 - RMSPE: {rmspe(y_true, y_pred):.4f}")
+
+# ========== 分类指标 ==========
+# 二分类：真实标签
+y_true = np.array([0, 1, 1, 0, 1, 0, 1, 0])
+# 预测类别（0/1）
+y_pred = np.array([0, 1, 0, 0, 1, 0, 1, 1])
+# 预测正例概率（0~1），用于 AUC 和 LogLoss
+y_proba = np.array([0.1, 0.9, 0.4, 0.2, 0.8, 0.3, 0.7, 0.6])
+
+acc = accuracy_score(y_true, y_pred)
+prec = precision_score(y_true, y_pred)
+rec = recall_score(y_true, y_pred)
+f1 = f1_score(y_true, y_pred)
+auc = roc_auc_score(y_true, y_proba)
+logloss = log_loss(y_true, y_proba)
+cm = confusion_matrix(y_true, y_pred)
+
+print(f"分类 - 准确率: {acc:.4f}")
+print(f"分类 - 精确率: {prec:.4f}")
+print(f"分类 - 召回率: {rec:.4f}")
+print(f"分类 - F1 分数: {f1:.4f}")
+print(f"分类 - AUC-ROC: {auc:.4f}")
+print(f"分类 - LogLoss: {logloss:.4f}")
+print(f"分类 - 混淆矩阵:\n{cm}")
+
+# 分类报告：一次性输出精确率、召回率、F1、支持数
+print(classification_report(y_true, y_pred))
 ```
 
-> 💡 **怎么知道比赛目录名？** 在 Data 页面，每个文件右侧有一个 "Copy API command" 按钮，点击后会复制类似 `kaggle competitions download -c <比赛目录名>` 的命令，那个 `-c` 后面跟的就是比赛目录名。
+---
+
+## F.4 小结
+
+本附录汇总了 Kaggle 回归和分类任务的常用评估指标：
+
+**回归指标（越小越好，除了 R² 越大越好）：**
+
+| 指标 | 特点 | 适用场景 |
+|------|------|---------|
+| RMSE | 对大误差敏感，单位和目标一致 | 最常用回归指标 |
+| MAE | 对异常值稳健 | 有异常值时 |
+| RMSPE | 关注相对误差 | 目标变量数值跨度大时 |
+| R² | 解释了多少方差 | 作为参考指标 |
+
+**分类指标：**
+
+| 指标 | 基于 | 越大越好 / 越小越好 | 适用场景 |
+|------|------|-------------------|---------|
+| 准确率 | 类别预测 | 越大越好 | 类别平衡 |
+| 精确率 | 类别预测 | 越大越好 | 误报代价高 |
+| 召回率 | 类别预测 | 越大越好 | 漏检代价高 |
+| F1 分数 | 类别预测 | 越大越好 | 类别不平衡，平衡精确率和召回率 |
+| AUC-ROC | 概率预测 | 越接近 1 越好 | 样本排序能力，类别不平衡 |
+| LogLoss | 概率预测 | 越小越好 | 概率校准程度 |
+
+**选指标原则：** 先看比赛官方规定用什么指标，那个就是最终排名依据。本地验证时尽量用同一个指标，避免“本地分和排行榜分不一致”。
 
 ---
 
-## F.3 用 Kaggle Notebooks 写代码
-
-Kaggle Notebooks 是 Kaggle 自带的云端 Jupyter 环境，好处是：
-
-- **不用装环境**：Python、pandas、scikit-learn、XGBoost、PyTorch、TensorFlow 等都预装好了。
-- **免费 GPU/GPU**：可以申请免费 GPU 小时数，训练深度学习模型不需要自己买显卡。
-- **数据自动挂载**：比赛数据自动在 `/kaggle/input/` 目录，不用手动上传下载。
-- **可公开分享**：写好的 Notebook 可以公开，其他人可以 Fork 一份在自己账号下运行。
-
-### 创建 Notebook
-
-1. 进入比赛页面，点击 **"Code"** 标签页。
-2. 点击 **"New Notebook"** 按钮，选择语言（Python 或 R）。
-3. 给 Notebook 起个名字，比如 "baseline-linear-regression"。
-4. 选择是否启用 GPU（训练深度学习模型时选 GPU，普通表格模型选 CPU 就够了）。
-5. 点击 **"Create"**，进入编辑器。
-
-### 运行单元格
-
-Notebook 是按“单元格”（cell）运行的：
-
-- 选中一个代码单元格，按 `Shift + Enter` 运行该单元格并跳到下一个。
-- 按 `Ctrl + Enter` 运行当前单元格但不跳转。
-- 工具栏有运行全部、停止、重启内核等按钮。
-
-### 输出预测文件
-
-在 Notebook 里训练完模型、在测试集上做预测后，把预测结果保存成 CSV 文件：
-
-```python
-# 假设 test 是测试集 DataFrame，y_pred 是模型预测的结果
-submission = pd.DataFrame({
-    "Id": test["Id"],            # Id 列名要和 sample_submission 一致
-    "Prediction": y_pred         # 预测列名也要和 sample_submission 一致
-})
-
-# 保存到 Notebook 的工作目录
-submission.to_csv("submission.csv", index=False)
-```
-
-保存后，文件会出现在 Notebook 侧边栏的文件列表里，你可以右键下载，也可以直接在同一个 Notebook 里提交。
-
----
-
-## F.4 提交预测结果
-
-有两种方式提交：
-
-### 方式1：通过比赛页面手动提交（最常用）
-
-1. 进入比赛页面，点击顶部的 **"Submit Predictions"** 按钮。
-2. 上传你的预测文件（CSV 格式）。
-3. 给本次提交起个描述（比如 "baseline-linear-regression v1"），方便以后找。
-4. 点击提交，等待几秒到几分钟，平台会自动计算分数。
-
-### 方式2：在 Notebook 里用 Kaggle API 提交
-
-如果你在 Kaggle Notebooks 里写代码，也可以用 `kaggle` 命令行工具直接提交，不需要离开 Notebook：
-
-```bash
-!pip install kaggle   # 通常已预装
-```
-
-首先需要配置 API 令牌：在 Kaggle 网站的个人设置里点击 "Create New API Token"，下载 `kaggle.json`，上传到 Notebook 并放到 `~/.kaggle/kaggle.json`。
-
-然后在 Notebook 里：
-
-```python
-import os
-os.environ["KAGGLE_USERNAME"] = "你的用户名"
-os.environ["KAGGLE_KEY"] = "你的 API Key"
-
-!kaggle competitions submit -c <比赛目录名> -f submission.csv -m "baseline-linear-regression v1"
-```
-
-> 💡 **推荐新手先用方式1（手动上传）**，更直观，出错了也容易看到错误信息。
-
----
-
-## F.5 查看排行榜和分数
-
-提交后，进入比赛页面的 **"Leaderboard"** 标签页，就能看到：
-
-- **Public Leaderboard（公开榜）**：提交后立即可见，是对一部分测试数据（通常是测试集的 70%）的得分。
-- **Private Leaderboard（私有榜）**：比赛结束后才揭晓，是对剩余测试数据（通常是 30%）的得分，决定最终排名。
-
-注意：Public 分数不等于最终排名。有些选手在 Public 榜上很高，Private 榜上掉得很厉害，这通常是**过拟合**的迹象（在 Public 测试集上“猜中”了答案）。
-
----
-
-## F.6 提交格式检查清单（避免常见错误）
-
-Kaggle 对提交文件的格式要求非常严格，格式不对平台会直接拒绝。提交前请核对以下几点：
-
-| 检查项 | 说明 |
-|--------|------|
-| **列名完全一致** | 你的 CSV 列名必须和 `sample_submission.csv` 完全一样（包括大小写、下划线） |
-| **行数与测试集一致** | 预测行数必须等于 `test.csv` 的行数，不能多也不能少 |
-| **ID 列与测试集一致** | ID 列的值和顺序必须和 `test.csv` 完全对应，不能乱序、不能缺、不能多 |
-| **没有额外列** | 不能多出 sample_submission 里没有的列 |
-| **没有缺失值** | 预测列不能有空值（NaN），每个测试样本都必须有预测值 |
-| **不带行索引** | 保存 CSV 时用 `index=False`，不要把行号（0,1,2...）写进文件 |
-| **编码为 UTF-8** | 建议用 UTF-8 编码保存，避免中文乱码 |
-
-### 一个快速的格式自检代码
-
-```python
-import pandas as pd
-
-sample = pd.read_csv("sample_submission.csv")
-submission = pd.read_csv("submission.csv")
-
-# 1. 列名是否一致
-print("列名一致:", list(sample.columns) == list(submission.columns))
-
-# 2. 行数是否一致
-print("行数一致:", len(sample) == len(submission))
-
-# 3. ID 是否完全一致（顺序也要一致）
-print("ID 一致:", (sample.iloc[:, 0] == submission.iloc[:, 0]).all())
-
-# 4. 是否有缺失值
-print("有缺失值:", submission.isnull().any().any())
-
-# 5. 是否有多余列
-print("多余列:", set(submission.columns) - set(sample.columns))
-```
-
-如果上面全部通过，基本就可以放心提交了。
-
----
-
-## F.7 提交次数限制
-
-Kaggle 比赛通常对每天的提交次数有限制（比如每天最多提交 5 次或 10 次），具体看比赛规则。不要随便提交测试，建议：
-
-- 本地跑通代码，格式自检通过后再提交。
-- 每次提交前给文件起个有意义的名字（如 `submission_v1_lr.csv`、`submission_v2_rf.csv`），方便追踪哪个版本效果更好。
-- 别一天内频繁提交试探 Public 分，容易用完次数且容易过拟合 Public 榜。
-
----
-
-## F.8 小结
-
-本附录快速过了一遍 Kaggle 提交流程：
-
-1. **加入比赛**：登录后点击 "Join Competition"，勾选接受规则。
-2. **获取数据**：手动下载，或在 Kaggle Notebooks 里直接用 `/kaggle/input/<比赛目录名>/`。
-3. **写代码**：用 Kaggle Notebooks（免费、环境预装、数据自动挂载）或本地 Jupyter。
-4. **生成提交文件**：用 `to_csv("submission.csv", index=False)`，列名和行数必须和 `sample_submission.csv` 一致。
-5. **提交**：比赛页面点击 "Submit Predictions" 上传，或用 Kaggle API 提交。
-6. **看分数**：进入 Leaderboard 查看 Public/Private 分数和排名。
-7. **格式自检**：列名、行数、ID顺序、无缺失值、`index=False`。
-
-第一次提交哪怕只交一个“填平均值”的基线，也要把整个“读数据 → 建模 → 预测 → 提交 → 查排名”的链路跑通。之后再逐步改进模型，提高分数。
-
----
-
-> **下一步建议**：提交流程跑通后，建议继续阅读正文第22章《竞赛策略与心态》，学习如何制定比赛策略、避免过拟合、在排行榜上稳步提升排名。
+> **下一步建议**：评估指标读完后，你已经具备了参加 Kaggle 比赛的完整技能栈。建议继续阅读正文第 20 章《模型评估与验证》、第 21 章《模型调参与集成学习》和第 22 章《竞赛策略与心态》，学习如何制定比赛策略、避免过拟合、在排行榜上稳步提升排名。
