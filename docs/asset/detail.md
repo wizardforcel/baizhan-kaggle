@@ -1423,5 +1423,5 @@ E.10 小结
 
 | 日期 | 版本 | 更新内容 | 备注 |
 |------|------|----------|------|
-| 2026-11-17 | v1.0 | 根据细纲编写全部附录 A-G，逐章保存到 `docs/Appendix{A-G}/index.md` 并提交推送 | Appendix A：Python 基础语法速查表；Appendix B：NumPy 快速入门；Appendix C：pandas 数据处理快速入门；Appendix D：数据可视化快速入门（matplotlib/seaborn）；Appendix E：scikit-learn 机器学习快速入门；Appendix F：Kaggle 提交与 Notebook 使用指南；Appendix G：常见竞赛算法速查（XGBoost/LightGBM/CatBoost） |
-| 2026-11-17 | v1.0 | 检查细纲 `docs/asset/detail.md` 附录部分，确认已包含附录 E：PyTorch 快速参考，无需额外插入 | 细纲附录 E 第 1338-1399 行 |
+| 2026-11-17 | v1.0 | 根据最初细纲编写全部附录 A-G | Appendix A：Python 基础语法速查表；Appendix B：NumPy 快速入门；Appendix C：pandas 数据处理快速入门；Appendix D：数据可视化快速入门（matplotlib/seaborn）；Appendix E：scikit-learn 机器学习快速入门；Appendix F：Kaggle 提交与 Notebook 使用指南；Appendix G：常见竞赛算法速查（XGBoost/LightGBM/CatBoost） |
+| 2026-11-17 | v1.1 | 根据新细纲重新组织附录结构，对齐细纲附录 A-F | Appendix A 改为 NumPy 快速参考（对应细纲附录 A）；Appendix B 改为 pandas 快速参考（对应细纲附录 B）；Appendix C 改为 matplotlib 快速参考（对应细纲附录 C）；Appendix D 改为 scikit-learn 快速参考（对应细纲附录 D）；Appendix E 新建 PyTorch 快速参考（对应细纲附录 E）；Appendix F 新建常用 Kaggle 评估指标速查表（对应细纲附录 F）；删除不在新细纲中的旧 Appendix G；每章均包含 Mermaid 图表、详细注释的 Python 代码，代码可在 Kaggle Notebooks 免费环境直接运行 |
