@@ -18,15 +18,8 @@ https://datawhalechina.github.io/baizhan-kaggle
 
 ## 目录
 
-### Writeup
-
 |  章节名   | 简介 | 状态 |
 |  ----  | ---- | ---- |
-| [**全部比赛的 Writeup**](docs/writeups/SUMMARY.md) | 查看全部比赛的 Writeup | ✅ |
-
-### 教程书籍
-
-（编写中）
 
 ## 贡献者名单
 
