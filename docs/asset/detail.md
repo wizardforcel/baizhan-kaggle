@@ -27,108 +27,40 @@
 ## 第1章 Kaggle 比赛流程与规则：从注册到首次提交的完整走一遍
 
 1.1 什么是 Kaggle，比赛页面长什么样  
-- 赛事页面、数据页面、讨论区、排行榜、代码笔记本（Notebooks）的位置与作用  
-- 「比赛」与「数据集」的区别  
-- 【Python 代码示例】：无  
-- 【Mermaid 图表】：Kaggle 比赛页面导览图
+介绍 Kaggle 平台定位，赛事页面、数据页面、讨论区、排行榜、代码笔记本五大区域的位置与作用，区分「比赛」与「数据集」的概念。【Python 代码示例】：无；【Mermaid 图表】：Kaggle 比赛页面导览图
 
 1.2 注册账号并加入一场比赛  
-- 账号注册、实名认证、接受比赛规则  
-- 如何选择适合新手入门的比赛（奖金、截止时间、数据规模、话题熟悉度）  
-- 【Python 代码示例】：无  
-- 【Mermaid 图表】：无
+讲解账号注册、实名认证、接受比赛规则的流程，以及如何根据奖金、截止时间、数据规模、话题熟悉度选择适合新手的入门比赛。【Python 代码示例】：无；【Mermaid 图表】：无
 
 1.3 理解三份核心文件：训练集、测试集、样例提交  
-- train.csv、test.csv、sample_submission.csv 各自包含什么  
-- 为什么测试集没有标签，样例提交的格式必须严格匹配  
-- 【Python 代码示例】：pandas 读取三份文件并打印形状与列名  
-- 【Mermaid 图表】：三份文件的数据流向图
+说明 train.csv、test.csv、sample_submission.csv 各自包含的内容，解释测试集无标签的原因以及提交格式必须严格匹配样例的要求。【Python 代码示例】：pandas 读取三份文件并打印形状与列名；【Mermaid 图表】：三份文件的数据流向图
 
 1.4 使用 Kaggle Notebooks：浏览器里直接写代码  
-- Notebook 界面、代码单元格与 Markdown 单元格  
-- 运行、中断、保存、版本管理的基础操作  
-- 【Python 代码示例】：第一个打印 "Hello Kaggle" 的单元格  
-- 【Mermaid 图表】：无
+介绍 Notebook 界面、代码与 Markdown 单元格的区别，运行、中断、保存、版本管理等基础操作。【Python 代码示例】：第一个打印 "Hello Kaggle" 的单元格；【Mermaid 图表】：无
 
 1.5 免费 GPU 是什么，什么时候需要开  
-- CPU 与 GPU 的直观区别（用画图比喻：顺序计算 vs 并行计算）  
-- 图像、文本大模型需要 GPU，表格数据通常 CPU 即可  
-- 如何在 Notebook 设置里开启 GPU  
-- 【Python 代码示例】：无  
-- 【Mermaid 图表】：CPU 与 GPU 计算方式对比图
+用画图比喻直观对比 CPU 顺序计算与 GPU 并行计算，说明图像、文本大模型需要 GPU 而表格数据通常 CPU 即可，演示如何在 Notebook 设置中开启 GPU。【Python 代码示例】：无；【Mermaid 图表】：CPU 与 GPU 计算方式对比图
 
 1.6 把数据下载到本地：Kaggle API 与手动下载  
-- 网页端直接下载 ZIP  
-- Kaggle API 安装、认证文件配置、`kaggle competitions download` 命令  
-- 【Python 代码示例】：用 Python 调用 kaggle API 下载数据（subprocess 调用 CLI）  
-- 【Mermaid 图表】：无
+对比网页端直接下载 ZIP 与 Kaggle API 安装、认证配置、`kaggle competitions download` 命令行下载两种方式。【Python 代码示例】：用 Python subprocess 调用 kaggle CLI 下载数据；【Mermaid 图表】：无
 
 1.7 你的第一份提交：哪怕全猜同一个数也能跑通  
-- 用训练集目标变量的平均值填满测试集预测列  
-- 生成 submission.csv 并上传，查看排行榜排名  
-- 目标：跑通「读数据→建模→预测→提交」全链路，而非追求分数  
-- 【Python 代码示例】：均值基线提交的完整代码  
-- 【Mermaid 图表】：基线提交流程图
+演示用训练集目标变量均值填充测试集预测列，生成 submission.csv 上传并查看排行榜，目标是跑通「读数据→建模→预测→提交」全链路而非追求分数。【Python 代码示例】：均值基线提交的完整代码；【Mermaid 图表】：基线提交流程图
 
 1.8 查看排行榜与理解 Public / Private 排名  
-- Public 排行榜与 Private 排行榜的区别  
-- 为什么排行榜分数会波动，如何看待自己的名次  
-- 【Python 代码示例】：无  
-- 【Mermaid 图表】：无
+解释 Public 与 Private 排行榜的区别，说明分数波动原因与如何正确看待名次。【Python 代码示例】：无；【Mermaid 图表】：无
 
 1.9 比赛中的禁忌与常见规则  
-- 目标泄漏：验证集里不能偷看答案  
-- 外部数据的使用限制  
-- 提交次数限制与截止时间规则  
-- 【Python 代码示例】：无  
-- 【Mermaid 图表】：比赛规则红线清单
+梳理目标泄漏（验证集不能偷看答案）、外部数据使用限制、提交次数与截止时间限制三大红线。【Python 代码示例】：无；【Mermaid 图表】：比赛规则红线清单
 
-1.10 Kaggle CLI 使用：命令行里跑遍 Kaggle
-- Kaggle CLI 是什么：官方提供的命令行工具，把网页端的操作变成脚本
-- 安装与认证：`pip install kaggle`，把 `kaggle.json` 放到 `~/.kaggle/`（Windows 为 `C:\Users\<用户名>\.kaggle\`），设置权限 `chmod 600 kaggle.json`
-- 常用命令全览：
-  - `kaggle competitions list`：列出所有比赛，支持 `-s` 搜索关键词、`-p` 翻页
-  - `kaggle competitions download -c <比赛名>`：下载比赛数据，自动解压到当前目录
-  - `kaggle competitions submit -c <比赛名> -f submission.csv -m "备注信息"`：提交预测结果
-  - `kaggle competitions submissions -c <比赛名>`：查看历史提交记录
-  - `kaggle datasets list` / `download`：浏览与下载公开数据集
-  - `kaggle kernels list` / `push` / `pull`：管理 Notebook（代码笔记本）
-  - `kaggle config set -n competition -v <比赛名>`：设置默认比赛，后续命令可省略 `-c`
-- 实战场景：把「下载数据→训练→预测→提交」写成一个 Shell/Python 脚本，实现一键跑通
-- 【Python 代码示例】：用 `subprocess.run` 封装 CLI 调用，实现自动下载、提交、查分的完整脚本
-- 【Mermaid 图表】：Kaggle CLI 核心命令流程图
+1.10 Kaggle CLI 使用：命令行里跑遍 Kaggle  
+介绍 Kaggle CLI 官方命令行工具，覆盖 `pip install kaggle` 安装与 `kaggle.json` 认证配置，常用命令包括 competitions list/download/submit/submissions、datasets、kernels、config set 等，实战场景为将「下载→训练→预测→提交」封装成一键脚本。【Python 代码示例】：subprocess.run 封装 CLI 实现自动下载、提交、查分；【Mermaid 图表】：Kaggle CLI 核心命令流程图
 
-1.11 Kaggle MCP 配置：让 AI 助手直接操作 Kaggle
-- MCP 是什么：Model Context Protocol，让大模型能调用外部工具的标准协议
-- 为什么要配 MCP：不用在浏览器和终端来回切换，直接在对话里让 AI 帮你下载数据、提交结果、查看排行榜
-- 配置步骤：
-  1. 确保已安装 Kaggle CLI 并完成认证（上一节内容）
-  2. 在 Claude Desktop / Cursor / VS Code 等支持 MCP 的客户端配置文件中添加 `kaggle` 服务器
-  3. 典型配置示例（以 Claude Desktop 为例，编辑 `claude_desktop_config.json`）：
-     ```json
-     {
-       "mcpServers": {
-         "kaggle": {
-           "command": "npx",
-           "args": ["-y", "@modelcontextprotocol/server-kaggle"],
-           "env": {
-             "KAGGLE_USERNAME": "你的用户名",
-             "KAGGLE_KEY": "你的 API Key（来自 kaggle.json）"
-           }
-         }
-       }
-     }
-     ```
-  4. 重启客户端，对话中即可直接说「帮我下载 House Prices 比赛的数据」「提交我的 submission.csv」
-- 常见问题排查：
-  - 提示认证失败：检查 `KAGGLE_USERNAME` 和 `KAGGLE_KEY` 是否正确，Key 中不要包含多余空格
-  - 命令找不到：确认 Node.js 环境可用，`npx` 在 PATH 中
-  - 权限报错：Windows 下可能需要以管理员身份运行或调整执行策略
-- 【Python 代码示例】：无（MCP 由客户端托管，不直接写 Python 调用）
-- 【Mermaid 图表】：MCP 客户端 ↔ Kaggle 服务器交互架构图
+1.11 Kaggle MCP 配置：让 AI 助手直接操作 Kaggle  
+解释 MCP（Model Context Protocol）让大模型调用外部工具的协议作用，配置步骤：确保 CLI 认证 → 客户端配置文件添加 kaggle 服务器（含 Claude Desktop JSON 示例） → 重启对话直接用自然语言操作 Kaggle，附常见认证失败、命令找不到、权限报错排查。【Python 代码示例】：无（MCP 由客户端托管）；【Mermaid 图表】：MCP 客户端 ↔ Kaggle 服务器交互架构图
 
-1.12 小结
-- 本章知识点回顾与下一章预告
+1.12 小结  
+本章知识点回顾与下一章预告。
 
 ---
 
