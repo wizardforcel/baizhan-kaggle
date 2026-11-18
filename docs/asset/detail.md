@@ -83,7 +83,51 @@
 - 【Python 代码示例】：无  
 - 【Mermaid 图表】：比赛规则红线清单
 
-1.10 小结  
+1.10 Kaggle CLI 使用：命令行里跑遍 Kaggle
+- Kaggle CLI 是什么：官方提供的命令行工具，把网页端的操作变成脚本
+- 安装与认证：`pip install kaggle`，把 `kaggle.json` 放到 `~/.kaggle/`（Windows 为 `C:\Users\<用户名>\.kaggle\`），设置权限 `chmod 600 kaggle.json`
+- 常用命令全览：
+  - `kaggle competitions list`：列出所有比赛，支持 `-s` 搜索关键词、`-p` 翻页
+  - `kaggle competitions download -c <比赛名>`：下载比赛数据，自动解压到当前目录
+  - `kaggle competitions submit -c <比赛名> -f submission.csv -m "备注信息"`：提交预测结果
+  - `kaggle competitions submissions -c <比赛名>`：查看历史提交记录
+  - `kaggle datasets list` / `download`：浏览与下载公开数据集
+  - `kaggle kernels list` / `push` / `pull`：管理 Notebook（代码笔记本）
+  - `kaggle config set -n competition -v <比赛名>`：设置默认比赛，后续命令可省略 `-c`
+- 实战场景：把「下载数据→训练→预测→提交」写成一个 Shell/Python 脚本，实现一键跑通
+- 【Python 代码示例】：用 `subprocess.run` 封装 CLI 调用，实现自动下载、提交、查分的完整脚本
+- 【Mermaid 图表】：Kaggle CLI 核心命令流程图
+
+1.11 Kaggle MCP 配置：让 AI 助手直接操作 Kaggle
+- MCP 是什么：Model Context Protocol，让大模型能调用外部工具的标准协议
+- 为什么要配 MCP：不用在浏览器和终端来回切换，直接在对话里让 AI 帮你下载数据、提交结果、查看排行榜
+- 配置步骤：
+  1. 确保已安装 Kaggle CLI 并完成认证（上一节内容）
+  2. 在 Claude Desktop / Cursor / VS Code 等支持 MCP 的客户端配置文件中添加 `kaggle` 服务器
+  3. 典型配置示例（以 Claude Desktop 为例，编辑 `claude_desktop_config.json`）：
+     ```json
+     {
+       "mcpServers": {
+         "kaggle": {
+           "command": "npx",
+           "args": ["-y", "@modelcontextprotocol/server-kaggle"],
+           "env": {
+             "KAGGLE_USERNAME": "你的用户名",
+             "KAGGLE_KEY": "你的 API Key（来自 kaggle.json）"
+           }
+         }
+       }
+     }
+     ```
+  4. 重启客户端，对话中即可直接说「帮我下载 House Prices 比赛的数据」「提交我的 submission.csv」
+- 常见问题排查：
+  - 提示认证失败：检查 `KAGGLE_USERNAME` 和 `KAGGLE_KEY` 是否正确，Key 中不要包含多余空格
+  - 命令找不到：确认 Node.js 环境可用，`npx` 在 PATH 中
+  - 权限报错：Windows 下可能需要以管理员身份运行或调整执行策略
+- 【Python 代码示例】：无（MCP 由客户端托管，不直接写 Python 调用）
+- 【Mermaid 图表】：MCP 客户端 ↔ Kaggle 服务器交互架构图
+
+1.12 小结
 - 本章知识点回顾与下一章预告
 
 ---
@@ -1425,3 +1469,4 @@ E.10 小结
 |------|------|----------|------|
 | 2026-11-17 | v1.0 | 根据最初细纲编写全部附录 A-G | Appendix A：Python 基础语法速查表；Appendix B：NumPy 快速入门；Appendix C：pandas 数据处理快速入门；Appendix D：数据可视化快速入门（matplotlib/seaborn）；Appendix E：scikit-learn 机器学习快速入门；Appendix F：Kaggle 提交与 Notebook 使用指南；Appendix G：常见竞赛算法速查（XGBoost/LightGBM/CatBoost） |
 | 2026-11-17 | v1.1 | 根据新细纲重新组织附录结构，对齐细纲附录 A-F | Appendix A 改为 NumPy 快速参考（对应细纲附录 A）；Appendix B 改为 pandas 快速参考（对应细纲附录 B）；Appendix C 改为 matplotlib 快速参考（对应细纲附录 C）；Appendix D 改为 scikit-learn 快速参考（对应细纲附录 D）；Appendix E 新建 PyTorch 快速参考（对应细纲附录 E）；Appendix F 新建常用 Kaggle 评估指标速查表（对应细纲附录 F）；删除不在新细纲中的旧 Appendix G；每章均包含 Mermaid 图表、详细注释的 Python 代码，代码可在 Kaggle Notebooks 免费环境直接运行 |
+| 2026-11-18 | v1.2 | 第 1 章末尾新增两节：Kaggle CLI 使用与 Kaggle MCP 配置 | 1.10 节覆盖 CLI 安装认证、常用命令、一键跑通脚本；1.11 节覆盖 MCP 协议概念、Claude Desktop 配置示例、常见问题排查；原 1.10 小结重编号为 1.12；均包含 Mermaid 图表，CLI 节附 Python 代码示例 |
