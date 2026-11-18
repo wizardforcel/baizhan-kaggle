@@ -396,7 +396,199 @@ flowchart TD
 
 ---
 
-## 1.10 小结
+## 1.10 Kaggle CLI 使用：命令行里跑遍 Kaggle
+
+如果你经常参加比赛，或者想把「下载数据 → 训练 → 预测 → 提交」这套流程写成自动化脚本，Kaggle 官方提供的命令行工具（Kaggle CLI）会比网页点点点高效得多。
+
+### 安装与认证
+
+```bash
+# 1. 安装
+pip install kaggle
+
+# 2. 获取认证文件
+# 登录 Kaggle 网站 → 点击右上角头像 → Settings → API → Create New API Token
+# 会下载一个 kaggle.json 文件，里面包含 username 和 key
+
+# 3. 放置认证文件
+# Linux / macOS: ~/.kaggle/kaggle.json
+# Windows: C:\Users\<你的用户名>\.kaggle\kaggle.json
+
+# 4. 设置权限（仅 Linux/macOS 需要）
+chmod 600 ~/.kaggle/kaggle.json
+```
+
+### 常用命令全览
+
+| 命令 | 作用 |
+|------|------|
+| `kaggle competitions list` | 列出所有比赛，`-s` 搜索关键词，`-p` 翻页 |
+| `kaggle competitions download -c <比赛名>` | 下载比赛数据，自动解压到当前目录 |
+| `kaggle competitions submit -c <比赛名> -f submission.csv -m "备注"` | 提交预测结果 |
+| `kaggle competitions submissions -c <比赛名>` | 查看历史提交记录 |
+| `kaggle datasets list / download` | 浏览与下载公开数据集 |
+| `kaggle kernels list / push / pull` | 管理 Notebook（代码笔记本） |
+| `kaggle config set -n competition -v <比赛名>` | 设置默认比赛，后续命令可省略 `-c` |
+
+### 实战场景：一键跑通脚本
+
+把「下载 → 训练 → 预测 → 提交」封装成一个 Python 脚本，以后每次参加新比赛只需改比赛名即可：
+
+```python
+import subprocess
+import os
+import sys
+
+
+def run_cmd(cmd, description=""):
+    """运行命令并打印结果"""
+    print(f"\n=== {description or ' '.join(cmd)} ===")
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.stdout:
+        print(result.stdout)
+    if result.stderr:
+        print(result.stderr, file=sys.stderr)
+    if result.returncode != 0:
+        print(f"❌ 失败，退出码: {result.returncode}")
+        return False
+    print("✅ 成功")
+    return True
+
+
+def main(competition_name):
+    # 1. 下载数据
+    if not run_cmd(['kaggle', 'competitions', 'download', '-c', competition_name], 
+                   f"下载 {competition_name} 数据"):
+        return
+
+    # 2. 解压（kaggle CLI 会自动下载 zip，这里演示手动解压）
+    import zipfile
+    zip_path = f"{competition_name}.zip"
+    if os.path.exists(zip_path):
+        with zipfile.ZipFile(zip_path, 'r') as zf:
+            zf.extractall(".")
+        print(f"已解压到当前目录")
+
+    # 3. 这里放你的训练+预测代码（示例：均值基线）
+    # import pandas as pd
+    # train = pd.read_csv('train.csv')
+    # test = pd.read_csv('test.csv')
+    # sample = pd.read_csv('sample_submission.csv')
+    # target_col = 'SalePrice'  # 根据实际比赛修改
+    # sample[target_col] = train[target_col].mean()
+    # sample.to_csv('submission.csv', index=False)
+
+    # 4. 提交
+    # run_cmd(['kaggle', 'competitions', 'submit', '-c', competition_name, 
+    #          '-f', 'submission.csv', '-m', '自动化基线提交'], 
+    #         "提交预测结果")
+
+    # 5. 查看提交记录
+    run_cmd(['kaggle', 'competitions', 'submissions', '-c', competition_name],
+            "查看提交记录")
+
+
+if __name__ == '__main__':
+    # 使用示例：python kaggle_auto.py house-prices-regression
+    if len(sys.argv) < 2:
+        print("用法: python kaggle_auto.py <比赛名>")
+        sys.exit(1)
+    main(sys.argv[1])
+```
+
+> **Mermaid 图表：Kaggle CLI 核心命令流程图**
+
+```mermaid
+flowchart TD
+    A[安装 kaggle CLI] --> B[配置 kaggle.json 认证]
+    B --> C[kaggle competitions list 搜索比赛]
+    C --> D[kaggle competitions download 下载数据]
+    D --> E[本地训练模型 生成 submission.csv]
+    E --> F[kaggle competitions submit 提交]
+    F --> G[kaggle competitions submissions 查看记录]
+    G --> H[根据分数迭代模型]
+    H --> E
+```
+
+---
+
+## 1.11 Kaggle MCP 配置：让 AI 助手直接操作 Kaggle
+
+### MCP 是什么
+
+**MCP（Model Context Protocol）** 是 Anthropic 推出的开放协议，让大语言模型（如 Claude）能通过标准化接口调用外部工具。简单说：**你不用再在浏览器、终端、编辑器之间来回切换，直接在对话里说「帮我下载 House Prices 的数据」「提交我的 submission.csv」，AI 就能帮你完成。**
+
+### 为什么要配 MCP
+
+- **不再上下文切换**：不用记命令、不用开终端、不用登网页。
+- **自然语言驱动**：「帮我找个适合新手的图像分类比赛」「把我刚才的模型提交上去并备注『调整了学习率』」。
+- **可编程、可复用**：把常用操作封装成 Prompt，团队共享、新手上手快。
+
+### 配置步骤（以 Claude Desktop 为例）
+
+**前置条件**：已安装 Kaggle CLI 并完成 `kaggle.json` 认证（见上一节）。
+
+1. 打开 Claude Desktop，进入 **Settings → Developer → Edit Config**，编辑 `claude_desktop_config.json`。
+
+2. 添加 `kaggle` 服务器配置（推荐使用官方或社区维护的 MCP Server，这里以 `@modelcontextprotocol/server-kaggle` 为例）：
+
+```json
+{
+  "mcpServers": {
+    "kaggle": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-kaggle"],
+      "env": {
+        "KAGGLE_USERNAME": "你的Kaggle用户名",
+        "KAGGLE_KEY": "你的API Key（来自 kaggle.json）"
+      }
+    }
+  }
+}
+```
+
+> **注意**：也有社区维护的 Python 版 MCP Server（如 `kaggle-mcp-server`、`arrismo/kaggle-mcp`），配置方式类似，只需把 `command` 改为 `uvx` 或 `python -m` 对应的模块名，`args` 相应调整。
+
+3. 重启 Claude Desktop。
+
+4. 在对话中直接使用：
+   - 「帮我下载 `house-prices-regression` 比赛的训练集和测试集」
+   - 「列出当前有哪些活跃的表格数据比赛」
+   - 「把 `submission.csv` 提交到 `house-prices-regression`，备注『均值基线』」
+   - 「查看我在这个比赛的历史提交记录」
+
+### 常见问题排查
+
+| 问题 | 排查方向 |
+|------|----------|
+| **认证失败** | 检查 `KAGGLE_USERNAME` 和 `KAGGLE_KEY` 是否正确，Key 中不要有多余空格或换行；确认 `kaggle.json` 在标准位置且权限 `600`。 |
+| **命令找不到 / npx 报错** | 确认 Node.js 已安装且 `npx` 在 PATH 中；尝试 `npm install -g @modelcontextprotocol/server-kaggle` 后改用全局命令。 |
+| **Windows 权限报错** | 以管理员身份运行终端，或在 PowerShell 执行 `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser`。 |
+| **MCP 服务器未启动** | 查看 Claude Desktop 的 Developer 面板日志，确认配置 JSON 语法正确（无尾随逗号、引号匹配）。 |
+
+> **Mermaid 图表：MCP 客户端 ↔ Kaggle 服务器交互架构图**
+
+```mermaid
+flowchart LR
+    subgraph 用户环境
+        U[用户自然语言指令] --> C[Claude Desktop / Cursor / VS Code]
+    end
+    subgraph MCP层
+        C -->|MCP 协议| M[MCP Client]
+        M -->|stdio / SSE| S[Kaggle MCP Server]
+    end
+    subgraph Kaggle云端
+        S -->|Kaggle API| K[(Kaggle 平台)]
+        K -->|返回数据/提交结果| S
+    end
+    S --> M
+    M --> C
+    C --> U
+```
+
+---
+
+## 1.12 小结
 
 本章我们完成了 Kaggle 比赛的「第一次面对面」：
 
@@ -409,5 +601,7 @@ flowchart TD
 7. 跑通了第一份提交：用训练集目标变量的平均值做均值基线，生成 `submission.csv` 并上传。
 8. 理解了 Public / Private 排行榜的区别，知道不必过度关注单次排名波动。
 9. 了解了比赛禁忌：目标泄漏、外部数据限制、提交次数、截止时间等。
+10. **掌握了 Kaggle CLI**：安装认证、常用命令（list/download/submit/submissions/datasets/kernels/config）、一键自动化脚本。
+11. **配置了 Kaggle MCP**：理解 MCP 协议、完成 Claude Desktop 配置、会用自然语言让 AI 下载数据、提交结果、查记录。
 
 下一章我们将进入正式的数据分析，学习探索性数据分析（EDA）：在建模之前，先把数据摊开来看，看清它的分布、缺失、异常值和相关性。
